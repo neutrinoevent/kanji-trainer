@@ -1,0 +1,85 @@
+# 字 Kanji Trainer
+
+A local app for learning kanji with spaced repetition. It covers the full jōyō
+set, JLPT levels, school grades, jinmeiyō name kanji, and a newspaper-frequency
+ranking (3,122 kanji in total), studied in small batches. Everything runs on
+your own machine. No accounts, no internet needed after setup.
+
+## Quick start
+
+**Requirement: Python 3.9+** (standard install from [python.org](https://www.python.org/downloads/);
+on Windows, tick *"Add python.exe to PATH"* during install). Nothing else. No
+pip packages, no Node, no database server.
+
+| OS | How to run |
+|---|---|
+| **Windows** | Double-click `run.bat` |
+| macOS / Linux | `./run.sh` (or `python3 server.py`) |
+
+Your browser opens at `http://127.0.0.1:7777` automatically. To use a different
+port: `python server.py 8080`.
+
+## Features
+
+- **Tracks and batches.** Study by frequency rank, JLPT level (N5 to N1),
+  school grade (1 to 6 plus secondary), or jinmeiyō name kanji. Within every
+  track, kanji are ordered most common first. Batch size is configurable.
+- **Shared progress across sets.** A kanji that appears in several sets (日 is
+  in the frequency, Grade 1, and N5 sets at once) has exactly one meaning card
+  and one reading card. Starting a batch adds only the kanji you don't already
+  have, and progress made in one track counts in every other.
+- **Spaced repetition.** Each kanji has a meaning card and a reading card,
+  scheduled SM-2 style: 10 minutes, 1 day, 3 days, then growing intervals.
+  Misses reset the card and lower its ease.
+- **Several question types, no drawing.** Multiple-choice meaning, reverse
+  (meaning to kanji), reading recognition, typed meaning with typo tolerance,
+  and typed reading with a live romaji-to-kana converter (type `nichi`, see
+  にち). Question type adapts to how well you know the card.
+- **Games.** Match Pairs (kanji to meaning against the clock) and Lightning
+  Round (60-second streak run). Games count in your stats but don't affect the
+  review schedule.
+- **Stats.** Daily activity, a 4-month heatmap, per-batch mastery, jōyō
+  coverage, accuracy, day streak, and your most-missed kanji.
+- **Persistence.** Everything is stored in a local SQLite database
+  (`data/trainer.db`), with JSON export/import to back up or move progress
+  between computers.
+- Dark mode by default, with a light theme toggle.
+
+## Keyboard shortcuts (during review)
+
+- `1`–`4` picks an answer
+- `Enter` checks a typed answer / continues to the next card
+
+## Files
+
+```
+server.py        the backend (Python standard library only)
+run.bat          Windows launcher
+run.sh           macOS/Linux launcher
+static/          the web UI (plain HTML/CSS/JS)
+data/kanji.json  the 3,122-kanji dataset
+data/trainer.db  your progress (created on first run; back this up)
+```
+
+## Sharing with someone else
+
+Zip the folder (leave out `data/trainer.db` so they start fresh) and send it.
+They install Python, double-click `run.bat`, done.
+
+## About
+
+Kanji Trainer was made by Alexander Nichols (Old Dominion University). It began
+as a way to help my brother prepare for his move to Japan and his studies in
+Waseda University's JCulP program: he needed to learn a couple thousand kanji
+in a sensible order, on Windows, without a pile of dependencies.
+
+You don't need a plane ticket for it to work for you, though. Whether you're
+studying for the JLPT, planning a trip, or just want to read a menu someday,
+the plan is the same one: learn the most common characters first, in small
+batches, and show up for a few minutes of review each day.
+
+## Data attribution
+
+Kanji readings/meanings derive from **KANJIDIC2** © EDRDG, licensed
+CC BY-SA 4.0, via the [davidluzgouveia/kanji-data](https://github.com/davidluzgouveia/kanji-data)
+compilation. Frequency ranks come from newspaper corpus counts.

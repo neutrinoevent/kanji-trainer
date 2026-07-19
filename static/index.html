@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kanji Trainer</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>字</text></svg>">
+<script>
+  // apply saved theme before first paint
+  try {
+    var t = localStorage.getItem("kt-theme");
+    if (t) document.documentElement.dataset.theme = t;
+  } catch (e) {}
+</script>
+</head>
+<body>
+<div class="app">
+  <nav class="sidebar">
+    <div class="brand"><span class="brand-kanji">字</span><span class="brand-name">Kanji Trainer</span></div>
+    <a href="#/" data-nav="dashboard" class="nav-link"><span class="nav-ico">◈</span>Dashboard</a>
+    <a href="#/study" data-nav="study" class="nav-link"><span class="nav-ico">📚</span>Batches</a>
+    <a href="#/review" data-nav="review" class="nav-link"><span class="nav-ico">⚡</span>Review <span id="due-badge" class="badge hidden">0</span></a>
+    <a href="#/games" data-nav="games" class="nav-link"><span class="nav-ico">🎯</span>Games</a>
+    <a href="#/stats" data-nav="stats" class="nav-link"><span class="nav-ico">📈</span>Stats</a>
+    <a href="#/settings" data-nav="settings" class="nav-link"><span class="nav-ico">⚙</span>Settings</a>
+    <div class="sidebar-foot">
+      <button id="theme-toggle" class="ghost-btn" title="Toggle theme">◐ Theme</button>
+    </div>
+  </nav>
+  <main id="main" class="main"></main>
+</div>
+<div id="modal-root"></div>
+<div id="tooltip" class="tooltip hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

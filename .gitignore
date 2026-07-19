@@ -1,0 +1,8 @@
+# user progress database
+data/trainer.db
+data/trainer.db-wal
+data/trainer.db-shm
+
+__pycache__/
+*.pyc
+.DS_Store

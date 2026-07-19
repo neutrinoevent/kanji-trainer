@@ -1,0 +1,1094 @@
+/* Kanji Trainer — frontend. Vanilla JS, no dependencies. */
+"use strict";
+
+// ================================================================ state
+
+const S = {
+  kanji: [],          // ordered by frequency rank
+  byChar: {},         // char -> kanji row
+  settings: null,
+  srs: new Map(),     // "字|meaning" -> srs row
+  dueCount: 0,
+  newCount: 0,
+};
+
+const $ = (sel, el = document) => el.querySelector(sel);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+
+async function api(path, body) {
+  const res = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
+  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+  return res.json();
+}
+
+async function loadState() {
+  const st = await api("/api/state");
+  S.settings = st.settings;
+  S.srs = new Map(st.srs.map((r) => [r.kanji + "|" + r.facet, r]));
+  S.dueCount = st.due_count;
+  S.newCount = st.new_count;
+  const badge = $("#due-badge");
+  const total = st.due_count + st.new_count;
+  badge.textContent = total;
+  badge.classList.toggle("hidden", total === 0);
+}
+
+function srsOf(k, facet) { return S.srs.get(k + "|" + facet); }
+function kanjiStarted(k) { return S.srs.has(k + "|meaning"); }
+function activePool() {
+  const pool = S.kanji.filter((r) => kanjiStarted(r.k));
+  return pool.length >= 8 ? pool : S.kanji.slice(0, 50);
+}
+const GROUPS = ["Frequency", "School grades", "JLPT", "Names"];
+async function loadCollections() {
+  S.collections = await api("/api/collections");
+  S.colById = Object.fromEntries(S.collections.map((c) => [c.id, c]));
+}
+function colChars(cid) { return Array.from(S.colById[cid].chars); }
+function colSlice(cid, i) {
+  const size = S.settings.batch_size;
+  return colChars(cid).slice(i * size, (i + 1) * size).map((c) => S.byChar[c]);
+}
+function setBadges(r) {
+  const out = [];
+  if (r.grade >= 1 && r.grade <= 6) out.push(`Jōyō · Grade ${r.grade}`);
+  else if (r.grade === 8) out.push("Jōyō · secondary");
+  else if (r.grade === 9 || r.grade === 10) out.push("Jinmeiyō");
+  if (r.jlpt) out.push(`JLPT N${r.jlpt}`);
+  if (r.freq) out.push(`#${r.freq} by frequency`);
+  return out;
+}
+
+// ================================================================ romaji → hiragana
+
+const ROMAJI = (() => {
+  const m = {
+    a:"あ",i:"い",u:"う",e:"え",o:"お",
+    ka:"か",ki:"き",ku:"く",ke:"け",ko:"こ",ga:"が",gi:"ぎ",gu:"ぐ",ge:"げ",go:"ご",
+    sa:"さ",shi:"し",si:"し",su:"す",se:"せ",so:"そ",za:"ざ",ji:"じ",zi:"じ",zu:"ず",ze:"ぜ",zo:"ぞ",
+    ta:"た",chi:"ち",ti:"ち",tsu:"つ",tu:"つ",te:"て",to:"と",da:"だ",di:"ぢ",du:"づ",de:"で",do:"ど",
+    na:"な",ni:"に",nu:"ぬ",ne:"ね",no:"の",
+    ha:"は",hi:"ひ",fu:"ふ",hu:"ふ",he:"へ",ho:"ほ",ba:"ば",bi:"び",bu:"ぶ",be:"べ",bo:"ぼ",
+    pa:"ぱ",pi:"ぴ",pu:"ぷ",pe:"ぺ",po:"ぽ",
+    ma:"ま",mi:"み",mu:"む",me:"め",mo:"も",
+    ya:"や",yu:"ゆ",yo:"よ",ra:"ら",ri:"り",ru:"る",re:"れ",ro:"ろ",
+    wa:"わ",wo:"を",vu:"ゔ",
+    kya:"きゃ",kyu:"きゅ",kyo:"きょ",gya:"ぎゃ",gyu:"ぎゅ",gyo:"ぎょ",
+    sha:"しゃ",shu:"しゅ",sho:"しょ",sya:"しゃ",syu:"しゅ",syo:"しょ",
+    ja:"じゃ",ju:"じゅ",jo:"じょ",jya:"じゃ",jyu:"じゅ",jyo:"じょ",zya:"じゃ",zyu:"じゅ",zyo:"じょ",
+    cha:"ちゃ",chu:"ちゅ",cho:"ちょ",tya:"ちゃ",tyu:"ちゅ",tyo:"ちょ",
+    dya:"ぢゃ",dyu:"ぢゅ",dyo:"ぢょ",
+    nya:"にゃ",nyu:"にゅ",nyo:"にょ",hya:"ひゃ",hyu:"ひゅ",hyo:"ひょ",
+    bya:"びゃ",byu:"びゅ",byo:"びょ",pya:"ぴゃ",pyu:"ぴゅ",pyo:"ぴょ",
+    mya:"みゃ",myu:"みゅ",myo:"みょ",rya:"りゃ",ryu:"りゅ",ryo:"りょ",
+    fa:"ふぁ",fi:"ふぃ",fe:"ふぇ",fo:"ふぉ",
+    "-":"ー",
+  };
+  return m;
+})();
+
+function romajiToKana(input) {
+  let s = input.toLowerCase().replace(/[^a-z\-']/g, "");
+  let out = "", i = 0;
+  while (i < s.length) {
+    // n → ん when followed by a consonant (IME style: "onna" → おんな), n', or end
+    if (s[i] === "n") {
+      const nx = s[i + 1];
+      if (nx === "'") { out += "ん"; i += 2; continue; }
+      if (nx === undefined || !"aiueoy".includes(nx)) { out += "ん"; i += 1; continue; }
+    }
+    // sokuon: doubled consonant
+    if (i + 1 < s.length && s[i] === s[i + 1] && !"aiueon-'".includes(s[i])) {
+      out += "っ"; i += 1; continue;
+    }
+    let matched = false;
+    for (const len of [3, 2, 1]) {
+      const chunk = s.substr(i, len);
+      if (ROMAJI[chunk]) { out += ROMAJI[chunk]; i += len; matched = true; break; }
+    }
+    if (!matched) { i += 1; }
+  }
+  return out;
+}
+
+function toHiragana(s) {
+  // convert katakana to hiragana; if latin letters present, run romaji conversion
+  let t = s.trim().replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+  if (/[a-zA-Z]/.test(t)) t = romajiToKana(t);
+  return t;
+}
+
+function readingForms(row) {
+  // normalized acceptable readings (okurigana dots removed, hyphens stripped)
+  const forms = new Set();
+  for (const r of [...row.on, ...row.kun]) {
+    const clean = r.replace(/-/g, "");
+    forms.add(clean.replace(/\./g, ""));           // full form e.g. はなす
+    if (clean.includes(".")) forms.add(clean.split(".")[0]); // stem e.g. はな
+  }
+  forms.delete("");
+  return forms;
+}
+
+function levenshtein(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 99;
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      dp[i][j] = Math.min(dp[i-1][j] + 1, dp[i][j-1] + 1, dp[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+  return dp[a.length][b.length];
+}
+
+function meaningMatches(input, row) {
+  const norm = (x) => x.toLowerCase().replace(/\(.*?\)/g, "").replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
+  const inp = norm(input);
+  if (!inp) return false;
+  for (const m of row.meanings) {
+    const t = norm(m);
+    if (inp === t) return true;
+    const tol = t.length >= 8 ? 2 : t.length >= 5 ? 1 : 0;
+    if (tol && levenshtein(inp, t) <= tol) return true;
+  }
+  return false;
+}
+
+// ================================================================ question builder
+
+function distractorPool(target) {
+  // prefer kanji near the same frequency neighborhood for plausible difficulty
+  const idx = S.kanji.indexOf(target);
+  const lo = Math.max(0, idx - 60), hi = Math.min(S.kanji.length, idx + 60);
+  return S.kanji.slice(lo, hi).filter((r) => r.k !== target.k);
+}
+
+function pickMeaningDistractors(target, n) {
+  const used = new Set(target.meanings.map((m) => m.toLowerCase()));
+  const out = [];
+  for (const r of shuffle(distractorPool(target))) {
+    const m = r.meanings[0];
+    if (!m || used.has(m.toLowerCase())) continue;
+    used.add(m.toLowerCase()); out.push(m);
+    if (out.length === n) break;
+  }
+  return out;
+}
+
+function pickKanjiDistractors(target, n) {
+  const used = new Set([target.k]);
+  const tm = new Set(target.meanings.map((m) => m.toLowerCase()));
+  const out = [];
+  for (const r of shuffle(distractorPool(target))) {
+    if (used.has(r.k)) continue;
+    if (r.meanings.some((m) => tm.has(m.toLowerCase()))) continue;
+    used.add(r.k); out.push(r.k);
+    if (out.length === n) break;
+  }
+  return out;
+}
+
+function pickReadingDistractors(target, n) {
+  const forms = readingForms(target);
+  const out = new Set();
+  for (const r of shuffle(distractorPool(target))) {
+    const cand = (r.on[0] || r.kun[0] || "").replace(/[-.]/g, "");
+    if (!cand || forms.has(cand) || out.has(cand)) continue;
+    out.add(cand);
+    if (out.size === n) break;
+  }
+  return [...out];
+}
+
+function buildQuestion(item) {
+  const row = S.byChar[item.k];
+  const st = srsOf(item.k, item.facet);
+  const mature = st && st.state === "review";
+  let mode;
+  if (item.facet === "meaning") {
+    const modes = mature ? ["type-meaning", "mc-meaning", "mc-kanji"] : ["mc-meaning", "mc-kanji", "mc-meaning"];
+    mode = pick(modes);
+  } else {
+    mode = mature ? pick(["type-reading", "type-reading", "mc-reading"]) : pick(["mc-reading", "mc-reading", "type-reading"]);
+  }
+  const q = { item, row, mode };
+  if (mode === "mc-meaning") {
+    q.answer = row.meanings[0];
+    q.choices = shuffle([q.answer, ...pickMeaningDistractors(row, 3)]);
+  } else if (mode === "mc-kanji") {
+    q.answer = row.k;
+    q.choices = shuffle([row.k, ...pickKanjiDistractors(row, 3)]);
+  } else if (mode === "mc-reading") {
+    const primary = (row.on[0] || row.kun[0] || "").replace(/[-.]/g, "");
+    q.answer = primary;
+    q.choices = shuffle([primary, ...pickReadingDistractors(row, 3)]);
+  }
+  return q;
+}
+
+// ================================================================ router / shell
+
+const routes = {};
+function navigate() {
+  const hash = location.hash || "#/";
+  const [_, name, arg] = hash.match(/^#\/([\w-]*)\/?(.*)$/) || [];
+  const view = routes[name || "dashboard"] || routes.dashboard;
+  document.querySelectorAll(".nav-link").forEach((a) => {
+    a.classList.toggle("active", a.dataset.nav === (name || "dashboard"));
+  });
+  view(arg);
+}
+
+function setMain(html) { $("#main").innerHTML = html; window.scrollTo(0, 0); }
+
+function openModal(html) {
+  $("#modal-root").innerHTML = `<div class="modal">${html}</div>`;
+  $("#modal-root").onclick = (e) => { if (e.target.id === "modal-root") closeModal(); };
+}
+function closeModal() { $("#modal-root").innerHTML = ""; }
+
+// tooltip helper
+const tip = $("#tooltip");
+function bindTips(root) {
+  root.querySelectorAll("[data-tip]").forEach((el) => {
+    el.addEventListener("mouseenter", () => { tip.innerHTML = el.dataset.tip; tip.classList.remove("hidden"); });
+    el.addEventListener("mousemove", (e) => {
+      tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 10) + "px";
+      tip.style.top = (e.clientY + 16) + "px";
+    });
+    el.addEventListener("mouseleave", () => tip.classList.add("hidden"));
+  });
+}
+
+// ================================================================ guided tour
+
+const TOUR_STEPS = [
+  { sel: null, title: "Welcome to Kanji Trainer",
+    body: "This app teaches the most useful kanji first, a small batch at a time. Here's a one-minute tour of where things are." },
+  { sel: '[data-nav="study"]', title: "Batches",
+    body: "Pick a track: newspaper frequency, JLPT level, school grade, or name kanji. Start Batch 1 to add its kanji to your rotation. A kanji shared by several sets is only ever added once." },
+  { sel: '[data-nav="review"]', title: "Review",
+    body: "Your daily queue. Each kanji has a meaning card and a reading card, and the schedule decides when you see them again: right answers push a card further out, misses bring it back." },
+  { sel: '[data-nav="stats"]', title: "Stats",
+    body: "Streak, accuracy, batch mastery, and the kanji you miss most. The Games page adds extra practice that counts here without touching your review schedule." },
+  { sel: '[data-nav="settings"]', title: "Settings",
+    body: "Batch size, new kanji per day, theme, and JSON backups of your progress. That's the tour." },
+];
+
+function startTour() {
+  if ($("#tour-root")) return;
+  let step = 0;
+  const root = document.createElement("div");
+  root.id = "tour-root";
+  root.innerHTML = `
+    <div class="tour-spot" id="tour-spot"></div>
+    <div class="tour-pop" id="tour-pop">
+      <div class="tour-title" id="tour-title"></div>
+      <div class="tour-body" id="tour-body"></div>
+      <div class="tour-dots" id="tour-dots"></div>
+      <div class="row tour-row">
+        <button class="ghost-btn" id="tour-skip">Skip</button>
+        <span style="flex:1"></span>
+        <button class="ghost-btn hidden" id="tour-back">Back</button>
+        <button class="primary-btn" id="tour-next">Next</button>
+      </div>
+    </div>`;
+  document.body.appendChild(root);
+  const spot = $("#tour-spot"), pop = $("#tour-pop");
+
+  const render = () => {
+    const s = TOUR_STEPS[step];
+    $("#tour-title").textContent = s.title;
+    $("#tour-body").textContent = s.body;
+    $("#tour-dots").innerHTML = TOUR_STEPS.map((_, i) =>
+      `<i class="${i === step ? "on" : ""}"></i>`).join("");
+    $("#tour-back").classList.toggle("hidden", step === 0);
+    $("#tour-next").textContent = step === TOUR_STEPS.length - 1 ? "Pick my first batch" : "Next";
+
+    const target = s.sel && document.querySelector(s.sel);
+    if (target) {
+      const r = target.getBoundingClientRect();
+      spot.style.left = (r.left - 6) + "px";
+      spot.style.top = (r.top - 6) + "px";
+      spot.style.width = (r.width + 12) + "px";
+      spot.style.height = (r.height + 12) + "px";
+      // place the card beside the highlight, below it on narrow screens
+      const pw = pop.offsetWidth, ph = pop.offsetHeight;
+      let left = r.right + 18, top = r.top - 8;
+      if (left + pw > innerWidth - 12) { left = Math.min(r.left, innerWidth - pw - 12); top = r.bottom + 14; }
+      pop.style.left = Math.max(12, left) + "px";
+      pop.style.top = Math.max(12, Math.min(top, innerHeight - ph - 12)) + "px";
+    } else {
+      spot.style.left = "50%"; spot.style.top = "38%";
+      spot.style.width = "0px"; spot.style.height = "0px";
+      pop.style.left = (innerWidth - pop.offsetWidth) / 2 + "px";
+      pop.style.top = Math.max(12, innerHeight * 0.38 - pop.offsetHeight / 2) + "px";
+    }
+  };
+
+  const finish = (goStudy) => {
+    document.removeEventListener("keydown", onKey);
+    removeEventListener("resize", render);
+    root.remove();
+    try { localStorage.setItem("kt-tour-done", "1"); } catch (e) {}
+    api("/api/settings", { tour_done: true }).catch(() => {});
+    S.settings.tour_done = true;
+    if (goStudy) location.hash = "#/study";
+  };
+  const onKey = (e) => {
+    if (e.key === "Escape") finish(false);
+    if (e.key === "Enter" || e.key === "ArrowRight") $("#tour-next").click();
+    if (e.key === "ArrowLeft" && step > 0) $("#tour-back").click();
+  };
+
+  $("#tour-skip").onclick = () => finish(false);
+  $("#tour-back").onclick = () => { step = Math.max(0, step - 1); render(); };
+  $("#tour-next").onclick = () => {
+    if (step === TOUR_STEPS.length - 1) return finish(true);
+    step++; render();
+  };
+  document.addEventListener("keydown", onKey);
+  addEventListener("resize", render);
+  render();
+  render(); // second pass now that the card has real dimensions
+}
+
+// ================================================================ dashboard
+
+routes.dashboard = async () => {
+  await loadState();
+  const stats = await api("/api/stats");
+  const totalQueue = S.dueCount + S.newCount;
+  const acc = stats.total_reviews ? Math.round((stats.total_correct / stats.total_reviews) * 100) : 0;
+
+  const days14 = lastNDays(14).map((d) => ({ d, ...(stats.days[d] || { n: 0, correct: 0 }) }));
+  const maxN = Math.max(1, ...days14.map((x) => x.n));
+
+  setMain(`
+    <h1>Dashboard</h1>
+    <p class="sub">${stats.in_rotation ? `${stats.in_rotation} kanji in rotation.` : "No kanji in rotation yet. Start a batch to begin."}</p>
+    <div class="tiles">
+      <div class="tile"><div class="t-label">Queue now</div><div class="t-value">${totalQueue}</div><div class="t-sub">${S.dueCount} due · ${S.newCount} new</div></div>
+      <div class="tile"><div class="t-label">Streak</div><div class="t-value">${stats.streak}</div><div class="t-sub">day${stats.streak === 1 ? "" : "s"} in a row</div></div>
+      <div class="tile"><div class="t-label">Learned</div><div class="t-value">${stats.learned}</div><div class="t-sub">${stats.mature} mature (3wk+)</div></div>
+      <div class="tile"><div class="t-label">Jōyō coverage</div><div class="t-value">${Math.round((stats.joyo_learned / stats.joyo_total) * 100)}%</div><div class="t-sub">${stats.joyo_learned} of ${stats.joyo_total}</div></div>
+      <div class="tile"><div class="t-label">Accuracy</div><div class="t-value">${acc}%</div><div class="t-sub">${stats.total_reviews} answers all-time</div></div>
+    </div>
+    <div class="row" style="margin:22px 0">
+      <button class="primary-btn" id="go-review" ${totalQueue ? "" : "disabled"}>⚡ Review ${totalQueue ? `(${totalQueue})` : ""}</button>
+      <button class="ghost-btn" id="go-study">Browse batches</button>
+      <button class="ghost-btn" id="go-games">Play a game</button>
+    </div>
+    <div class="card chart-card">
+      <div class="chart-title">Answers per day</div>
+      <div class="chart-sub">Last 14 days</div>
+      <div class="bars">${days14.map((x) => `<div class="bar ${x.n ? "" : "empty"}" style="height:${Math.max(2, (x.n / maxN) * 100)}%" data-tip="<b>${x.d.slice(5)}</b><br>${x.n} answers · ${x.n ? Math.round((x.correct / x.n) * 100) : 0}% correct"></div>`).join("")}</div>
+      <div class="bar-x">${days14.map((x, i) => `<span>${i % 2 ? "" : x.d.slice(8)}</span>`).join("")}</div>
+    </div>
+    ${nextBatchHint(stats)}
+  `);
+  $("#go-review").onclick = () => (location.hash = "#/review");
+  $("#go-study").onclick = () => (location.hash = "#/study");
+  $("#go-games").onclick = () => (location.hash = "#/games");
+  const replay = $("#replay-tour");
+  if (replay) replay.onclick = () => startTour();
+  bindTips($("#main"));
+
+  const firstVisit = stats.total_reviews === 0 && stats.in_rotation === 0
+    && !S.settings.tour_done && !localStorage.getItem("kt-tour-done");
+  if (firstVisit || S.forceTour) {
+    S.forceTour = false;
+    startTour();
+  }
+};
+
+function nextBatchHint(stats) {
+  // primary track = the collection with the most kanji in rotation
+  let best = null;
+  for (const [cid, batches] of Object.entries(stats.collections || {})) {
+    const started = batches.reduce((a, b) => a + b.started, 0);
+    if (started > 0 && (!best || started > best.started)) best = { cid, batches, started };
+  }
+  if (!best) {
+    return `
+    <div class="start-card">
+      <div class="start-kanji">始</div>
+      <div class="start-body">
+        <h2 style="margin:0 0 6px">Start your first batch</h2>
+        <p style="margin:0 0 16px;color:var(--ink-2)">Top frequency Batch 1 covers the ${S.settings.batch_size} most common kanji in newspapers. A batch and a few minutes of review a day is the whole routine.</p>
+        <div class="row">
+          <button class="primary-btn" onclick="location.hash='#/study'">Choose a batch</button>
+          <button class="ghost-btn" id="replay-tour">Replay the walkthrough</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  const name = S.colById?.[best.cid]?.name || best.cid;
+  const active = best.batches.filter((b) => b.started > 0);
+  const current = active.find((b) => b.mastery < 0.6) || active[active.length - 1];
+  const next = best.batches.find((b) => b.started < b.size);
+  if (next && current.mastery >= 0.6) {
+    return `<div class="card"><b>${name}</b> Batch ${current.index + 1} is at ${Math.round(current.mastery * 100)}% mastery. You're ready to <a href="#/study">start Batch ${next.index + 1}</a>.</div>`;
+  }
+  return `<div class="card">Current: <b>${name}</b> Batch ${current.index + 1} at ${Math.round(current.mastery * 100)}% mastery. Reach ~60% before starting the next one.</div>`;
+}
+
+function lastNDays(n) {
+  const out = [];
+  const d = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const x = new Date(d); x.setDate(d.getDate() - i);
+    out.push(`${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`);
+  }
+  return out;
+}
+
+// ================================================================ batches
+
+routes.study = async (arg) => {
+  await loadState();
+  await loadCollections();
+  const parts = (arg || "").split("/").filter(Boolean);
+  if (parts.length >= 2) return batchDetail(parts[0], parseInt(parts[1], 10));
+  const group = parts[0] && GROUPS.includes(decodeURIComponent(parts[0]))
+    ? decodeURIComponent(parts[0])
+    : S.studyGroup || "Frequency";
+  S.studyGroup = group;
+  const stats = await api("/api/stats");
+
+  const tabs = GROUPS.map((g) =>
+    `<button class="ghost-btn tab ${g === group ? "tab-active" : ""}" data-g="${g}">${g}</button>`).join("");
+
+  const cols = S.collections.filter((c) => c.group === group);
+  const sections = cols.map((c) => {
+    const chars = colChars(c.id);
+    const batches = stats.collections[c.id] || [];
+    const inRotation = batches.reduce((a, b) => a + b.started, 0);
+    const cards = batches.map((b, i) => {
+      const chunk = colSlice(c.id, i);
+      const started = b.started > 0;
+      const full = b.started === b.size;
+      const prev = i === 0 ? null : batches[i - 1];
+      const suggested = !full && (i === 0 || (prev && prev.mastery >= 0.6));
+      const pill = full ? Math.round(b.mastery * 100) + "%"
+        : started ? `${b.started}/${b.size} in`
+        : suggested ? "ready" : "later";
+      return `
+        <div class="batch-card ${started || suggested ? "" : "locked"}" data-col="${c.id}" data-batch="${i}">
+          <div class="batch-title">Batch ${i + 1}
+            <span class="pill ${started ? "started" : ""}">${pill}</span>
+          </div>
+          <div class="batch-range">#${i * S.settings.batch_size + 1}–${i * S.settings.batch_size + chunk.length} of ${c.name}</div>
+          <div class="batch-kanji-preview">${chunk.slice(0, 12).map((r) => r.k).join(" ")}</div>
+          <div class="meter"><i style="width:${Math.round(b.mastery * 100)}%"></i></div>
+        </div>`;
+    }).join("");
+    return `
+      <h2>${c.name} <span class="pill" style="vertical-align:middle">${chars.length} kanji${inRotation ? ` · ${inRotation} in rotation` : ""}</span></h2>
+      <p class="sub" style="margin-bottom:12px">${esc(c.desc)}.</p>
+      <div class="batch-grid">${cards}</div>`;
+  }).join("");
+
+  setMain(`
+    <h1>Batches</h1>
+    <p class="sub">A kanji that appears in more than one set shares a single pair of review cards. "5/25 in" means 5 kanji from that batch are already in your rotation through other batches.</p>
+    <div class="row" style="margin-bottom:6px">${tabs}</div>
+    ${sections}
+  `);
+  document.querySelectorAll(".tab").forEach((el) => {
+    el.onclick = () => { S.studyGroup = el.dataset.g; location.hash = "#/study/" + encodeURIComponent(el.dataset.g); };
+  });
+  document.querySelectorAll(".batch-card").forEach((el) => {
+    el.onclick = () => (location.hash = `#/study/${el.dataset.col}/${el.dataset.batch}`);
+  });
+};
+
+async function batchDetail(cid, i) {
+  const col = S.colById[cid];
+  if (!col) { location.hash = "#/study"; return; }
+  const chunk = colSlice(cid, i);
+  const notStarted = chunk.filter((r) => !kanjiStarted(r.k)).length;
+  const overlap = chunk.length - notStarted;
+  setMain(`
+    <h1>${col.name} · Batch ${i + 1} <span class="pill" style="vertical-align:middle">#${i * S.settings.batch_size + 1}–${i * S.settings.batch_size + chunk.length}</span></h1>
+    <p class="sub">Click any kanji for details.
+      ${overlap && notStarted ? `${overlap} of these are already in your rotation from other batches. Starting adds only the ${notStarted} new one${notStarted === 1 ? "" : "s"}.`
+        : notStarted === 0 ? "Every kanji here is already in your review rotation." : ""}</p>
+    <div class="row" style="margin-bottom:18px">
+      ${notStarted ? `<button class="primary-btn" id="start-batch">Add ${notStarted} kanji to rotation</button>` : ""}
+      <button class="ghost-btn" id="back-btn">← ${col.group}</button>
+    </div>
+    <div class="kanji-grid">
+      ${chunk.map((r) => {
+        const m = srsOf(r.k, "meaning"), rd = srsOf(r.k, "reading");
+        const cls = (s) => (s ? (s.state === "new" ? "" : s.state) : "");
+        return `<div class="kanji-cell" data-k="${r.k}">${r.k}<span class="st ${cls(m)}" title="meaning"></span><span class="st ${cls(rd)}" title="reading"></span></div>`;
+      }).join("")}
+    </div>
+  `);
+  $("#back-btn").onclick = () => { location.hash = "#/study/" + encodeURIComponent(col.group); };
+  const btn = $("#start-batch");
+  if (btn) btn.onclick = async () => {
+    const res = await api("/api/batch/start", { collection: cid, index: i });
+    await loadState();
+    batchDetail(cid, i);
+    if (res.already) {
+      $(".sub").innerHTML = `Added ${res.added} new kanji. The other ${res.already} were already in rotation.`;
+    }
+  };
+  document.querySelectorAll(".kanji-cell").forEach((el) => {
+    el.onclick = () => kanjiModal(el.dataset.k);
+  });
+}
+
+function kanjiModal(k) {
+  const r = S.byChar[k];
+  const m = srsOf(k, "meaning"), rd = srsOf(k, "reading");
+  const srsLine = (s) => {
+    if (!s || s.state === "new") return "not started";
+    const due = s.due ? new Date(s.due) : null;
+    const when = due ? (due <= new Date() ? "due now" : "due " + due.toLocaleDateString()) : "";
+    return `${s.state} · ${s.reps} reps · ${s.lapses} lapses · ${when}`;
+  };
+  openModal(`
+    <button class="modal-close" onclick="document.getElementById('modal-root').innerHTML=''">✕</button>
+    <div class="big-kanji">${r.k}</div>
+    <dl class="kv">
+      <dt>Meanings</dt><dd>${esc(r.meanings.join(", "))}</dd>
+      <dt>On readings</dt><dd class="jp">${r.on.join("、") || "—"}</dd>
+      <dt>Kun readings</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
+      <dt>Sets</dt><dd>${setBadges(r).map((b) => `<span class="pill">${b}</span>`).join(" ") || "—"}</dd>
+      <dt>Strokes</dt><dd>${r.strokes ?? "—"}</dd>
+      <dt>Meaning card</dt><dd>${srsLine(m)}</dd>
+      <dt>Reading card</dt><dd>${srsLine(rd)}</dd>
+    </dl>
+    <a href="https://jisho.org/search/${encodeURIComponent(r.k)}%20%23kanji" target="_blank" rel="noopener" style="color:var(--accent)">Look up on jisho.org ↗</a>
+  `);
+}
+
+// ================================================================ review session
+
+routes.review = async () => {
+  await loadState();
+  const queue = await api("/api/queue");
+  const sessionSize = S.settings.session_size;
+  const due = shuffle(queue.due).slice(0, sessionSize);
+  const newItems = queue.new.slice(0, Math.max(0, sessionSize - due.length + 6));
+
+  if (!due.length && !newItems.length) {
+    setMain(`
+      <h1>Review</h1>
+      <div class="card" style="text-align:center;padding:50px 20px">
+        <div style="font-family:var(--jp);font-size:64px">🎉</div>
+        <h2 style="margin-top:10px">All caught up!</h2>
+        <p class="sub">Nothing is due right now. Start a new batch, or play a game.</p>
+        <div class="row" style="justify-content:center">
+          <button class="ghost-btn" onclick="location.hash='#/study'">Batches</button>
+          <button class="ghost-btn" onclick="location.hash='#/games'">Games</button>
+        </div>
+      </div>`);
+    return;
+  }
+
+  // Build session: intro card once per brand-new kanji, then its quiz items.
+  const items = [...due];
+  const introduced = new Set();
+  for (const it of newItems) {
+    if (!introduced.has(it.k)) {
+      introduced.add(it.k);
+      items.push({ k: it.k, type: "intro" });
+    }
+    items.push(it);
+  }
+  runSession(items);
+};
+
+function runSession(items) {
+  const sess = {
+    items,
+    pos: 0,
+    firstTry: new Map(),   // "k|facet" -> bool
+    answered: 0,
+    correct: 0,
+    missed: new Set(),
+    startedAt: Date.now(),
+  };
+  nextCard(sess);
+}
+
+function sessionHeader(sess) {
+  const total = sess.items.length;
+  const pct = Math.round((sess.pos / total) * 100);
+  return `
+    <div class="quiz-top">
+      <span>${sess.pos + 1} / ${total}</span>
+      <div class="meter q-progress"><i style="width:${pct}%"></i></div>
+      <span>${sess.correct}✓ ${sess.answered - sess.correct}✗</span>
+    </div>`;
+}
+
+function nextCard(sess) {
+  if (sess.pos >= sess.items.length) return sessionDone(sess);
+  const item = sess.items[sess.pos];
+  if (item.type === "intro") return introCard(sess, item);
+  quizCard(sess, item);
+}
+
+function introCard(sess, item) {
+  const r = S.byChar[item.k];
+  setMain(`
+    <div class="quiz-wrap">
+      ${sessionHeader(sess)}
+      <div class="quiz-card intro-card">
+        <div class="q-kind">New kanji</div>
+        <div class="q-prompt-kanji">${r.k}</div>
+        <div class="intro-rows">
+          <dl class="kv">
+            <dt>Meanings</dt><dd>${esc(r.meanings.join(", "))}</dd>
+            <dt>On</dt><dd class="jp">${r.on.join("、") || "—"}</dd>
+            <dt>Kun</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
+            <dt>Rank</dt><dd>#${r.freq} most frequent</dd>
+          </dl>
+        </div>
+        <button class="primary-btn" id="cont">Got it →</button>
+        <div class="continue-hint">Enter ↵</div>
+      </div>
+    </div>`);
+  let advanced = false;
+  const go = () => { if (advanced) return; advanced = true; sess.pos++; nextCard(sess); };
+  $("#cont").onclick = go;
+  keyOnce((e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); return true; } return false; });
+}
+
+let keyHandler = null;
+function keyOnce(fn) {
+  if (keyHandler) document.removeEventListener("keydown", keyHandler);
+  keyHandler = (e) => {
+    if (e.target.tagName === "INPUT" && e.key !== "Enter") return;
+    if (fn(e)) { document.removeEventListener("keydown", keyHandler); keyHandler = null; }
+  };
+  document.addEventListener("keydown", keyHandler);
+}
+
+const MODE_LABEL = {
+  "mc-meaning": "What does this mean?",
+  "mc-kanji": "Which kanji means…",
+  "mc-reading": "Pick a correct reading",
+  "type-meaning": "Type the meaning",
+  "type-reading": "Type a reading (romaji ok)",
+};
+
+function quizCard(sess, item) {
+  const q = buildQuestion(item);
+  const t0 = Date.now();
+  const facetTag = `<span class="facet-${item.facet}">${item.facet}</span>`;
+  let inner = "";
+  if (q.mode === "mc-kanji") {
+    inner = `<div class="q-prompt-text">${esc(q.row.meanings[0])}</div>
+      <div class="choices">${q.choices.map((c, i) => `<button class="choice jp" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${c}</button>`).join("")}</div>`;
+  } else if (q.mode === "mc-meaning" || q.mode === "mc-reading") {
+    const jp = q.mode === "mc-reading" ? "jp" : "";
+    inner = `<div class="q-prompt-kanji">${q.row.k}</div>
+      <div class="choices">${q.choices.map((c, i) => `<button class="choice ${jp}" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}</div>`;
+  } else {
+    const isReading = q.mode === "type-reading";
+    inner = `<div class="q-prompt-kanji">${q.row.k}</div>
+      <input class="type-input ${isReading ? "jp" : ""}" id="type-in" autocomplete="off" spellcheck="false"
+             placeholder="${isReading ? "reading…" : "meaning…"}">
+      ${isReading ? `<div class="kana-preview" id="kana-prev"></div>` : ""}
+      <button class="primary-btn" id="type-go" style="margin-top:14px">Check ↵</button>`;
+  }
+  setMain(`
+    <div class="quiz-wrap">
+      ${sessionHeader(sess)}
+      <div class="quiz-card">
+        <div class="q-kind">${facetTag} · ${MODE_LABEL[q.mode]}</div>
+        ${inner}
+        <div class="q-feedback" id="feedback"></div>
+      </div>
+    </div>`);
+
+  const settle = (correct, chosen) => {
+    finishAnswer(sess, item, q, correct, chosen, Date.now() - t0);
+  };
+
+  if (q.choices) {
+    const btns = [...document.querySelectorAll(".choice")];
+    const onPick = (btn) => {
+      const val = btn.dataset.c;
+      const ok = val === q.answer;
+      btns.forEach((b) => {
+        b.disabled = true;
+        if (b.dataset.c === q.answer) b.classList.add("correct");
+        else if (b === btn && !ok) b.classList.add("wrong");
+      });
+      settle(ok, val);
+    };
+    btns.forEach((b) => (b.onclick = () => onPick(b)));
+    keyOnce((e) => {
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= q.choices.length && !btns[0].disabled) { onPick(btns[n - 1]); return true; }
+      return false;
+    });
+  } else {
+    const input = $("#type-in");
+    input.focus();
+    if (q.mode === "type-reading") {
+      input.addEventListener("input", () => { $("#kana-prev").textContent = toHiragana(input.value); });
+    }
+    const check = () => {
+      if (!input.value.trim()) return;
+      input.disabled = true; $("#type-go").disabled = true;
+      let ok;
+      if (q.mode === "type-reading") {
+        ok = readingForms(q.row).has(toHiragana(input.value));
+      } else {
+        ok = meaningMatches(input.value, q.row);
+      }
+      settle(ok, input.value);
+    };
+    $("#type-go").onclick = check;
+    keyOnce((e) => { if (e.key === "Enter") { check(); return e.target.disabled !== false; } return false; });
+  }
+}
+
+function finishAnswer(sess, item, q, correct, chosen, ms) {
+  const key = item.k + "|" + item.facet;
+  const isFirst = !sess.firstTry.has(key);
+  if (isFirst) sess.firstTry.set(key, correct);
+  const affectsSrs = isFirst && item.srsDone !== true;
+
+  sess.answered++;
+  if (correct) sess.correct++; else sess.missed.add(item.k);
+
+  api("/api/answer", { k: item.k, facet: item.facet, mode: q.mode, correct, ms, srs: affectsSrs }).catch(() => {});
+
+  // wrong answers come back later in the session (practice only, srs already recorded)
+  if (!correct) {
+    const reinsert = { k: item.k, facet: item.facet, type: "again", srsDone: true };
+    const at = Math.min(sess.items.length, sess.pos + 3 + Math.floor(Math.random() * 3));
+    sess.items.splice(at, 0, reinsert);
+  }
+
+  const r = q.row;
+  const fb = $("#feedback");
+  fb.innerHTML = `
+    <div class="verdict ${correct ? "ok" : "no"}">${correct ? "Correct!" : "Not quite"}</div>
+    <div class="detail"><span class="jp">${r.k}</span> — ${esc(r.meanings.slice(0, 3).join(", "))}
+      · <span class="jp">${[...r.on.slice(0, 2), ...r.kun.slice(0, 2)].join("、")}</span></div>
+    <button class="primary-btn" id="next-btn" style="margin-top:12px">Continue ↵</button>`;
+  let advanced = false;
+  const go = () => { if (advanced) return; advanced = true; sess.pos++; nextCard(sess); };
+  $("#next-btn").onclick = go;
+  $("#next-btn").focus();
+  keyOnce((e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); return true; } return false; });
+}
+
+function sessionDone(sess) {
+  const mins = Math.max(1, Math.round((Date.now() - sess.startedAt) / 60000));
+  const firstTryVals = [...sess.firstTry.values()];
+  const ftCorrect = firstTryVals.filter(Boolean).length;
+  const acc = firstTryVals.length ? Math.round((ftCorrect / firstTryVals.length) * 100) : 100;
+  setMain(`
+    <div class="quiz-wrap session-done">
+      <div class="doneK">${acc >= 80 ? "凄" : "続"}</div>
+      <h1>${acc >= 80 ? "Excellent session!" : "Session complete"}</h1>
+      <div class="done-stats">
+        <div class="tile"><div class="t-label">Cards</div><div class="t-value">${firstTryVals.length}</div></div>
+        <div class="tile"><div class="t-label">First-try</div><div class="t-value">${acc}%</div></div>
+        <div class="tile"><div class="t-label">Time</div><div class="t-value">${mins}m</div></div>
+      </div>
+      ${sess.missed.size ? `<p class="sub">Tricky this time: <span style="font-family:var(--jp);font-size:22px">${[...sess.missed].join(" ")}</span></p>` : ""}
+      <div class="row" style="justify-content:center">
+        <button class="primary-btn" onclick="location.hash='#/';location.reload()">Dashboard</button>
+        <button class="ghost-btn" id="again-btn">Review more</button>
+      </div>
+    </div>`);
+  $("#again-btn").onclick = () => { routes.review(); };
+  loadState().catch(() => {});
+}
+
+// ================================================================ games
+
+routes.games = async () => {
+  await loadState();
+  setMain(`
+    <h1>Games</h1>
+    <p class="sub">Extra practice with the kanji you've started. Games don't affect your review schedule, but results count in your stats.</p>
+    <div class="game-cards">
+      <div class="game-card" id="g-match"><h3>🀄 Match pairs</h3><p>Match kanji to meanings against the clock. 6 pairs per round.</p></div>
+      <div class="game-card" id="g-lightning"><h3>⚡ Lightning round</h3><p>60 seconds. As many correct answers as you can. Streaks count.</p></div>
+    </div>`);
+  $("#g-match").onclick = matchGame;
+  $("#g-lightning").onclick = lightningGame;
+};
+
+function matchGame() {
+  const pool = shuffle(activePool()).slice(0, 6);
+  const tiles = shuffle([
+    ...pool.map((r) => ({ id: r.k, kind: "k", text: r.k })),
+    ...pool.map((r) => ({ id: r.k, kind: "m", text: r.meanings[0] })),
+  ]);
+  const t0 = Date.now();
+  let solved = 0, misses = 0, sel = null;
+  setMain(`
+    <h1>Match pairs</h1>
+    <p class="sub" id="match-status">Match each kanji with its meaning.</p>
+    <div class="match-grid">
+      ${tiles.map((t, i) => `<button class="match-tile ${t.kind === "k" ? "jp" : ""}" data-i="${i}">${esc(t.text)}</button>`).join("")}
+    </div>
+    <div class="row" style="justify-content:center"><button class="ghost-btn" onclick="location.hash='#/games'">← Games</button></div>`);
+  const els = [...document.querySelectorAll(".match-tile")];
+  els.forEach((el) => (el.onclick = () => {
+    const t = tiles[+el.dataset.i];
+    if (sel && sel.el === el) { el.classList.remove("sel"); sel = null; return; }
+    if (!sel) { sel = { t, el }; el.classList.add("sel"); return; }
+    if (sel.t.id === t.id && sel.t.kind !== t.kind) {
+      [sel.el, el].forEach((x) => { x.classList.remove("sel"); x.classList.add("done"); });
+      api("/api/answer", { k: t.id, facet: "meaning", mode: "match", correct: true, srs: false }).catch(() => {});
+      solved++;
+      if (solved === 6) {
+        const secs = Math.round((Date.now() - t0) / 1000);
+        $("#match-status").innerHTML = `<b style="color:var(--good)">Cleared in ${secs}s with ${misses} miss${misses === 1 ? "" : "es"}!</b> &nbsp;<button class="ghost-btn" id="match-again">Play again</button>`;
+        $("#match-again").onclick = matchGame;
+      }
+    } else {
+      misses++;
+      const kanjiTile = sel.t.kind === "k" ? sel.t : t;
+      api("/api/answer", { k: kanjiTile.id, facet: "meaning", mode: "match", correct: false, srs: false }).catch(() => {});
+      const a = sel.el; a.classList.remove("sel");
+      [a, el].forEach((x) => x.classList.add("miss"));
+      setTimeout(() => [a, el].forEach((x) => x.classList.remove("miss")), 400);
+    }
+    sel = null;
+  }));
+}
+
+function lightningGame() {
+  const pool = activePool();
+  let score = 0, streak = 0, best = 0, timeLeft = 60, timer = null, alive = true;
+  const ask = () => {
+    if (!alive) return;
+    const row = pick(pool);
+    const answer = row.meanings[0];
+    const choices = shuffle([answer, ...pickMeaningDistractors(row, 3)]);
+    $("#lq").innerHTML = `
+      <div class="q-prompt-kanji">${row.k}</div>
+      <div class="choices">${choices.map((c, i) => `<button class="choice" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}</div>`;
+    const btns = [...document.querySelectorAll("#lq .choice")];
+    const onPick = (btn) => {
+      const ok = btn.dataset.c === answer;
+      api("/api/answer", { k: row.k, facet: "meaning", mode: "lightning", correct: ok, srs: false }).catch(() => {});
+      if (ok) { score++; streak++; best = Math.max(best, streak); }
+      else { streak = 0; btns.forEach((b) => { if (b.dataset.c === answer) b.classList.add("correct"); }); btn.classList.add("wrong"); }
+      updateHud();
+      if (ok) ask(); else setTimeout(ask, 550);
+    };
+    btns.forEach((b) => (b.onclick = () => onPick(b)));
+    keyOnce((e) => { const n = parseInt(e.key, 10); if (n >= 1 && n <= 4) { onPick(btns[n - 1]); return true; } return false; });
+  };
+  const updateHud = () => {
+    $("#lh-time").textContent = timeLeft;
+    $("#lh-score").textContent = score;
+    $("#lh-streak").textContent = streak;
+  };
+  setMain(`
+    <h1>Lightning round</h1>
+    <div class="lightning-hud">
+      <span>⏱ <b id="lh-time">60</b>s</span><span>Score <b id="lh-score">0</b></span><span>Streak <b id="lh-streak">0</b></span>
+    </div>
+    <div class="quiz-wrap"><div class="quiz-card" id="lq"></div></div>
+    <div class="row" style="justify-content:center;margin-top:16px"><button class="ghost-btn" id="lq-quit">Quit</button></div>`);
+  $("#lq-quit").onclick = () => { alive = false; clearInterval(timer); location.hash = "#/games"; };
+  timer = setInterval(() => {
+    timeLeft--;
+    if (timeLeft <= 0) {
+      alive = false; clearInterval(timer);
+      $("#lq").innerHTML = `
+        <div class="q-kind">Time!</div>
+        <div class="q-prompt-text">${score} correct · best streak ${best}</div>
+        <div class="row" style="justify-content:center">
+          <button class="primary-btn" id="lq-again">Again</button>
+          <button class="ghost-btn" onclick="location.hash='#/games'">Done</button>
+        </div>`;
+      $("#lq-again").onclick = lightningGame;
+    }
+    updateHud();
+  }, 1000);
+  ask();
+}
+
+// ================================================================ stats
+
+routes.stats = async () => {
+  await loadState();
+  const st = await api("/api/stats");
+  const acc = st.total_reviews ? Math.round((st.total_correct / st.total_reviews) * 100) : 0;
+
+  const days30 = lastNDays(30).map((d) => ({ d, ...(st.days[d] || { n: 0, correct: 0 }) }));
+  const maxN = Math.max(1, ...days30.map((x) => x.n));
+
+  const days120 = lastNDays(119 + 1).map((d) => ({ d, ...(st.days[d] || { n: 0 }) }));
+  const maxH = Math.max(1, ...days120.map((x) => x.n));
+  const seq = ["--seq-1", "--seq-2", "--seq-3", "--seq-4", "--seq-5", "--seq-6", "--seq-7"];
+  // pad so columns align to weeks (heatmap flows column-per-week, 7 rows)
+  const firstDow = new Date(days120[0].d + "T00:00:00").getDay();
+  const cells = [...Array(firstDow).fill(null), ...days120];
+
+  await loadCollections();
+  const trackSections = Object.entries(st.collections || {})
+    .map(([cid, batches]) => ({ cid, name: S.colById[cid]?.name || cid, batches: batches.filter((b) => b.started > 0) }))
+    .filter((t) => t.batches.length);
+
+  setMain(`
+    <h1>Stats</h1>
+    <p class="sub">Everything is stored locally in <code>data/trainer.db</code>.</p>
+    <div class="tiles" style="margin-bottom:14px">
+      <div class="tile"><div class="t-label">Total answers</div><div class="t-value">${st.total_reviews}</div></div>
+      <div class="tile"><div class="t-label">Accuracy</div><div class="t-value">${acc}%</div></div>
+      <div class="tile"><div class="t-label">Streak</div><div class="t-value">${st.streak}</div><div class="t-sub">days</div></div>
+      <div class="tile"><div class="t-label">In rotation</div><div class="t-value">${st.in_rotation}</div><div class="t-sub">kanji being studied</div></div>
+      <div class="tile"><div class="t-label">Learned</div><div class="t-value">${st.learned}</div><div class="t-sub">${st.mature} mature (3wk+)</div></div>
+      <div class="tile"><div class="t-label">Jōyō coverage</div><div class="t-value">${Math.round((st.joyo_learned / st.joyo_total) * 100)}%</div><div class="t-sub">${st.joyo_learned} / ${st.joyo_total}</div></div>
+    </div>
+
+    <div class="card chart-card">
+      <div class="chart-title">Answers per day</div>
+      <div class="chart-sub">Last 30 days</div>
+      <div class="bars">${days30.map((x) => `<div class="bar ${x.n ? "" : "empty"}" style="height:${Math.max(2, (x.n / maxN) * 100)}%" data-tip="<b>${x.d}</b><br>${x.n} answers · ${x.n ? Math.round(((x.correct || 0) / x.n) * 100) : 0}% correct"></div>`).join("")}</div>
+      <div class="bar-x">${days30.map((x, i) => `<span>${i % 5 ? "" : x.d.slice(8)}</span>`).join("")}</div>
+    </div>
+
+    <div class="card chart-card">
+      <div class="chart-title">Activity heatmap</div>
+      <div class="chart-sub">Last 4 months. Stronger color means more answers.</div>
+      <div class="heatmap">
+        ${cells.map((c) => {
+          if (!c) return `<i style="visibility:hidden"></i>`;
+          const lvl = c.n === 0 ? -1 : Math.min(6, Math.floor((c.n / maxH) * 6.99));
+          const bg = lvl < 0 ? "" : `style="background:var(${seq[lvl]})"`;
+          return `<i ${bg} data-tip="<b>${c.d}</b><br>${c.n} answers"></i>`;
+        }).join("")}
+      </div>
+    </div>
+
+    ${trackSections.length ? `
+    <div class="card chart-card hbars">
+      <div class="chart-title">Batch mastery</div>
+      <div class="chart-sub">Average card strength per started batch</div>
+      ${trackSections.map((t) => `
+        <div style="font-size:13px;font-weight:700;margin:12px 0 6px">${esc(t.name)}</div>
+        ${t.batches.map((b) => `
+        <div class="hb-row">
+          <span class="hb-label">Batch ${b.index + 1}</span>
+          <div class="hb-track"><div class="hb-fill" style="width:${Math.round(b.mastery * 100)}%"></div></div>
+          <span class="hb-val">${Math.round(b.mastery * 100)}%</span>
+        </div>`).join("")}`).join("")}
+    </div>` : ""}
+
+    ${st.hardest.length ? `
+    <div class="card chart-card">
+      <div class="chart-title">Trickiest kanji</div>
+      <div class="chart-sub">Most missed. Click a kanji to inspect it.</div>
+      <div class="hard-list">
+        ${st.hardest.map((h) => `<div class="hard-item" data-k="${h.k}"><span class="hk">${h.k}</span><span class="hw">${h.wrong}✗</span></div>`).join("")}
+      </div>
+    </div>` : ""}
+  `);
+  bindTips($("#main"));
+  document.querySelectorAll(".hard-item").forEach((el) => {
+    el.onclick = () => S.byChar[el.dataset.k] && kanjiModal(el.dataset.k);
+  });
+};
+
+// ================================================================ settings
+
+routes.settings = async () => {
+  await loadState();
+  const s = S.settings;
+  const sel = (name, options, val) =>
+    `<select id="set-${name}">${options.map((o) => `<option value="${o}" ${o == val ? "selected" : ""}>${o}</option>`).join("")}</select>`;
+  setMain(`
+    <h1>Settings</h1>
+    <p class="sub">Changes apply immediately.</p>
+    <div class="card">
+      <div class="form-grid">
+        <label>Frequency track size (top N)</label>${sel("top_n", [250, 500, 750, 1000, 1500, 2000, 2501], s.top_n)}
+        <label>Batch size</label>${sel("batch_size", [10, 15, 20, 25, 50], s.batch_size)}
+        <label>New kanji per day</label>${sel("new_per_day", [3, 5, 10, 15, 20], s.new_per_day)}
+        <label>Session length (cards)</label>${sel("session_size", [10, 20, 30, 50], s.session_size)}
+      </div>
+    </div>
+    <h2>Data</h2>
+    <div class="card">
+      <div class="row">
+        <button class="ghost-btn" id="export-btn">⬇ Export backup (JSON)</button>
+        <button class="ghost-btn" id="import-btn">⬆ Import backup</button>
+        <input type="file" id="import-file" accept=".json" class="hidden">
+      </div>
+      <p class="settings-note" style="margin-bottom:0">Your progress lives in <code>data/trainer.db</code> next to the app. Export/import lets you move progress between computers. Importing <b>replaces</b> current progress.</p>
+    </div>
+    <h2>Help</h2>
+    <div class="card">
+      <button class="ghost-btn" id="settings-tour">Replay the interface walkthrough</button>
+    </div>
+    <h2>About</h2>
+    <p class="settings-note">Kanji Trainer was made by Alexander Nichols (Old Dominion University). It began as a way to help my brother prepare for his move to Japan and his studies in Waseda University's JCulP program: he needed to learn a lot of kanji in a sensible order, without wrestling with the tools.</p>
+    <p class="settings-note">You don't need a plane ticket for it to work for you, though. Whether you're studying for the JLPT, planning a trip, or just want to read a menu someday, the plan is the same one: learn the most common characters first, in small batches, and show up for a few minutes of review each day. That's the whole trick, and it's yours too.</p>
+    <p class="settings-note">Kanji data derived from KANJIDIC2 © EDRDG, used under CC BY-SA 4.0 (via davidluzgouveia/kanji-data). Frequency ranks are from newspaper corpus counts.</p>
+  `);
+  for (const name of ["top_n", "batch_size", "new_per_day", "session_size"]) {
+    $("#set-" + name).onchange = async (e) => {
+      await api("/api/settings", { [name]: parseInt(e.target.value, 10) });
+      await loadState();
+      await loadCollections();
+    };
+  }
+  $("#settings-tour").onclick = () => { S.forceTour = true; location.hash = "#/"; };
+  $("#export-btn").onclick = async () => {
+    const dump = await api("/api/export");
+    const blob = new Blob([JSON.stringify(dump)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `kanji-trainer-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  $("#import-btn").onclick = () => $("#import-file").click();
+  $("#import-file").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!confirm("Importing replaces ALL current progress. Continue?")) return;
+    try {
+      const dump = JSON.parse(await file.text());
+      await api("/api/import", dump);
+      alert("Import complete.");
+      location.reload();
+    } catch (err) {
+      alert("Import failed: " + err.message);
+    }
+  };
+};
+
+// ================================================================ boot
+
+$("#theme-toggle").onclick = () => {
+  const cur = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  document.documentElement.dataset.theme = cur;
+  try { localStorage.setItem("kt-theme", cur); } catch (e) {}
+  api("/api/settings", { theme: cur }).catch(() => {});
+};
+
+(async function boot() {
+  const res = await fetch("/data/kanji.json");
+  S.kanji = await res.json();
+  S.byChar = Object.fromEntries(S.kanji.map((r) => [r.k, r]));
+  await loadState();
+  await loadCollections();
+  if (!localStorage.getItem("kt-theme") && S.settings.theme) {
+    document.documentElement.dataset.theme = S.settings.theme;
+  }
+  window.addEventListener("hashchange", navigate);
+  navigate();
+})();
