@@ -818,25 +818,54 @@ routes.games = async () => {
     <p class="sub">Extra practice with the kanji you've started. Games don't affect your review schedule, but results count in your stats.</p>
     <div class="game-cards">
       <div class="game-card" id="g-match"><h3>🀄 Match pairs</h3><p>Match kanji to meanings against the clock. 6 pairs per round.</p></div>
+      <div class="game-card" id="g-match-r"><h3>🔊 Reading pairs</h3><p>Same idea, but match each kanji to one of its readings.</p></div>
+      <div class="game-card" id="g-memory"><h3>🎴 Memory flip</h3><p>Twelve face-down cards. Find the kanji and meaning pairs from memory.</p></div>
+      <div class="game-card" id="g-odd"><h3>🕵️ Odd one out</h3><p>Three of the four kanji share an on-reading. Spot the one that doesn't.</p></div>
+      <div class="game-card" id="g-snap"><h3>👍 Snap judgment</h3><p>45 seconds of true or false: does this meaning belong to this kanji?</p></div>
       <div class="game-card" id="g-lightning"><h3>⚡ Lightning round</h3><p>60 seconds. As many correct answers as you can. Streaks count.</p></div>
+      <div class="game-card" id="g-survival"><h3>❤️ Survival</h3><p>Three lives, no timer. Questions march down the frequency list and get harder as you go.</p></div>
     </div>`);
-  $("#g-match").onclick = matchGame;
+  $("#g-match").onclick = () => matchGame("meaning");
+  $("#g-match-r").onclick = () => matchGame("reading");
+  $("#g-memory").onclick = memoryGame;
+  $("#g-odd").onclick = oddOneOutGame;
+  $("#g-snap").onclick = snapGame;
   $("#g-lightning").onclick = lightningGame;
+  $("#g-survival").onclick = survivalGame;
 };
 
-function matchGame() {
-  const pool = shuffle(activePool()).slice(0, 6);
+function primaryReading(r) {
+  return (r.on[0] || r.kun[0] || "").replace(/[-.]/g, "");
+}
+function gameLog(k, facet, mode, correct) {
+  api("/api/answer", { k, facet, mode, correct, srs: false }).catch(() => {});
+}
+// interval that stops itself once its HUD element leaves the DOM (user navigated away)
+function gameTimer(fn, probeId) {
+  const t = setInterval(() => {
+    if (!document.getElementById(probeId)) { clearInterval(t); return; }
+    fn(t);
+  }, 1000);
+  return t;
+}
+
+// ---------------------------------------------------------------- match pairs
+
+function matchGame(kind) {
+  const source = kind === "reading" ? activePool().filter((r) => primaryReading(r)) : activePool();
+  const pool = shuffle(source).slice(0, 6);
+  const title = kind === "reading" ? "Reading pairs" : "Match pairs";
   const tiles = shuffle([
     ...pool.map((r) => ({ id: r.k, kind: "k", text: r.k })),
-    ...pool.map((r) => ({ id: r.k, kind: "m", text: r.meanings[0] })),
+    ...pool.map((r) => ({ id: r.k, kind: "m", text: kind === "reading" ? primaryReading(r) : r.meanings[0] })),
   ]);
   const t0 = Date.now();
   let solved = 0, misses = 0, sel = null;
   setMain(`
-    <h1>Match pairs</h1>
-    <p class="sub" id="match-status">Match each kanji with its meaning.</p>
+    <h1>${title}</h1>
+    <p class="sub" id="match-status">Match each kanji with its ${kind === "reading" ? "reading" : "meaning"}.</p>
     <div class="match-grid">
-      ${tiles.map((t, i) => `<button class="match-tile ${t.kind === "k" ? "jp" : ""}" data-i="${i}">${esc(t.text)}</button>`).join("")}
+      ${tiles.map((t, i) => `<button class="match-tile ${t.kind === "k" || kind === "reading" ? "jp" : ""}" data-i="${i}">${esc(t.text)}</button>`).join("")}
     </div>
     <div class="row" style="justify-content:center"><button class="ghost-btn" onclick="location.hash='#/games'">← Games</button></div>`);
   const els = [...document.querySelectorAll(".match-tile")];
@@ -846,17 +875,17 @@ function matchGame() {
     if (!sel) { sel = { t, el }; el.classList.add("sel"); return; }
     if (sel.t.id === t.id && sel.t.kind !== t.kind) {
       [sel.el, el].forEach((x) => { x.classList.remove("sel"); x.classList.add("done"); });
-      api("/api/answer", { k: t.id, facet: "meaning", mode: "match", correct: true, srs: false }).catch(() => {});
+      gameLog(t.id, kind, "match-" + kind, true);
       solved++;
       if (solved === 6) {
         const secs = Math.round((Date.now() - t0) / 1000);
         $("#match-status").innerHTML = `<b style="color:var(--good)">Cleared in ${secs}s with ${misses} miss${misses === 1 ? "" : "es"}!</b> &nbsp;<button class="ghost-btn" id="match-again">Play again</button>`;
-        $("#match-again").onclick = matchGame;
+        $("#match-again").onclick = () => matchGame(kind);
       }
     } else {
       misses++;
       const kanjiTile = sel.t.kind === "k" ? sel.t : t;
-      api("/api/answer", { k: kanjiTile.id, facet: "meaning", mode: "match", correct: false, srs: false }).catch(() => {});
+      gameLog(kanjiTile.id, kind, "match-" + kind, false);
       const a = sel.el; a.classList.remove("sel");
       [a, el].forEach((x) => x.classList.add("miss"));
       setTimeout(() => [a, el].forEach((x) => x.classList.remove("miss")), 400);
@@ -865,9 +894,266 @@ function matchGame() {
   }));
 }
 
+// ---------------------------------------------------------------- memory flip
+
+function memoryGame() {
+  const pool = shuffle(activePool()).slice(0, 6);
+  const tiles = shuffle([
+    ...pool.map((r) => ({ id: r.k, kind: "k", text: r.k })),
+    ...pool.map((r) => ({ id: r.k, kind: "m", text: r.meanings[0] })),
+  ]);
+  let first = null, lock = false, flips = 0, solved = 0;
+  setMain(`
+    <h1>Memory flip</h1>
+    <p class="sub" id="mem-status">All cards are face down. Find the kanji and meaning pairs.</p>
+    <div class="match-grid">
+      ${tiles.map((t, i) => `<button class="match-tile facedown" data-i="${i}">?</button>`).join("")}
+    </div>
+    <div class="row" style="justify-content:center"><button class="ghost-btn" onclick="location.hash='#/games'">← Games</button></div>`);
+  const els = [...document.querySelectorAll(".match-tile")];
+  const show = (el, t) => { el.textContent = t.text; el.classList.remove("facedown"); el.classList.toggle("jp", t.kind === "k"); };
+  const hide = (el) => { el.textContent = "?"; el.classList.add("facedown"); el.classList.remove("jp"); };
+  els.forEach((el) => (el.onclick = () => {
+    if (lock || el.classList.contains("done") || (first && first.el === el)) return;
+    const t = tiles[+el.dataset.i];
+    show(el, t);
+    if (!first) { first = { t, el }; return; }
+    flips++;
+    if (first.t.id === t.id && first.t.kind !== t.kind) {
+      [first.el, el].forEach((x) => x.classList.add("done"));
+      gameLog(t.id, "meaning", "memory", true);
+      solved++;
+      first = null;
+      if (solved === 6) {
+        $("#mem-status").innerHTML = `<b style="color:var(--good)">Cleared in ${flips} flips!</b> (perfect is 6) &nbsp;<button class="ghost-btn" id="mem-again">Play again</button>`;
+        $("#mem-again").onclick = memoryGame;
+      }
+    } else {
+      lock = true;
+      const a = first.el;
+      first = null;
+      setTimeout(() => { hide(a); hide(el); lock = false; }, 750);
+    }
+  }));
+}
+
+// ---------------------------------------------------------------- odd one out
+
+function buildOddRound(pool) {
+  // group by cleaned on-reading; need a reading shared by >=3 kanji
+  const groups = {};
+  for (const r of pool) {
+    for (const raw of r.on) {
+      const rd = raw.replace(/[-.]/g, "");
+      if (rd) (groups[rd] = groups[rd] || []).push(r);
+    }
+  }
+  const shared = Object.entries(groups).filter(([, v]) => v.length >= 3);
+  if (!shared.length) return null;
+  const [reading, members] = pick(shared);
+  const trio = shuffle(members).slice(0, 3);
+  const hasReading = (r) => r.on.some((x) => x.replace(/[-.]/g, "") === reading);
+  const odd = pick(pool.filter((r) => !hasReading(r) && !trio.includes(r)));
+  if (!odd) return null;
+  return { reading, trio, odd, options: shuffle([...trio, odd]) };
+}
+
+function oddOneOutGame() {
+  // reading groups need a wide pool; extend with common kanji if the user's is small
+  const pool = [...new Set([...activePool(), ...S.kanji.slice(0, 400)])];
+  const TOTAL = 10;
+  let round = 0, score = 0;
+  const ask = () => {
+    if (!document.getElementById("odd-box")) return;
+    if (round === TOTAL) {
+      $("#odd-box").innerHTML = `
+        <div class="q-kind">Done!</div>
+        <div class="q-prompt-text">${score} / ${TOTAL}</div>
+        <div class="row" style="justify-content:center">
+          <button class="primary-btn" id="odd-again">Again</button>
+          <button class="ghost-btn" onclick="location.hash='#/games'">Done</button>
+        </div>`;
+      $("#odd-again").onclick = oddOneOutGame;
+      return;
+    }
+    const r = buildOddRound(pool);
+    if (!r) { $("#odd-box").innerHTML = `<div class="q-prompt-text">Not enough shared readings to play yet.</div>`; return; }
+    $("#odd-round").textContent = `${round + 1} / ${TOTAL}`;
+    $("#odd-box").innerHTML = `
+      <div class="q-kind">Three share an on-reading. Which doesn't?</div>
+      <div class="choices choices-4">${r.options.map((o, i) =>
+        `<button class="choice jp" data-k="${o.k}"><span class="key-hint">${i + 1}</span>${o.k}</button>`).join("")}
+      </div>
+      <div class="q-feedback" id="odd-fb"></div>`;
+    const btns = [...document.querySelectorAll("#odd-box .choice")];
+    const onPick = (btn) => {
+      const ok = btn.dataset.k === r.odd.k;
+      if (ok) score++;
+      gameLog(r.odd.k, "reading", "odd-one-out", ok);
+      btns.forEach((b) => {
+        b.disabled = true;
+        if (b.dataset.k === r.odd.k) b.classList.add("correct");
+        else if (b === btn && !ok) b.classList.add("wrong");
+      });
+      const oddRow = r.odd;
+      $("#odd-fb").innerHTML = `
+        <div class="verdict ${ok ? "ok" : "no"}">${ok ? "Correct!" : "Not quite"}</div>
+        <div class="detail">${r.trio.map((t) => t.k).join(" ")} share <span class="jp">${r.reading}</span>.
+          <span class="jp">${oddRow.k}</span> (${esc(oddRow.meanings[0])}) reads <span class="jp">${primaryReading(oddRow) || "—"}</span>.</div>`;
+      round++;
+      setTimeout(ask, 1900);
+    };
+    btns.forEach((b) => (b.onclick = () => onPick(b)));
+    keyOnce((e) => { const n = parseInt(e.key, 10); if (n >= 1 && n <= 4 && !btns[0].disabled) { onPick(btns[n - 1]); return true; } return false; });
+  };
+  setMain(`
+    <h1>Odd one out</h1>
+    <div class="lightning-hud"><span>Round <b id="odd-round">1 / ${TOTAL}</b></span></div>
+    <div class="quiz-wrap"><div class="quiz-card" id="odd-box"></div></div>
+    <div class="row" style="justify-content:center;margin-top:16px"><button class="ghost-btn" onclick="location.hash='#/games'">Quit</button></div>`);
+  ask();
+}
+
+// ---------------------------------------------------------------- snap judgment
+
+function snapGame() {
+  const pool = activePool();
+  let score = 0, streak = 0, best = 0, timeLeft = 45, alive = true;
+  const ask = () => {
+    if (!alive || !document.getElementById("snap-box")) return;
+    const row = pick(pool);
+    const truth = Math.random() < 0.5;
+    const shown = truth ? pick(row.meanings) : (pickMeaningDistractors(row, 1)[0] || row.meanings[0]);
+    const isMatch = truth || row.meanings.some((m) => m.toLowerCase() === shown.toLowerCase());
+    $("#snap-box").innerHTML = `
+      <div class="q-prompt-kanji" style="font-size:76px">${row.k}</div>
+      <div class="q-prompt-text" style="padding:8px 0 0">${esc(shown)}</div>
+      <div class="choices">
+        <button class="choice" data-v="1"><span class="key-hint">1</span>✓ Match</button>
+        <button class="choice" data-v="0"><span class="key-hint">2</span>✗ No match</button>
+      </div>`;
+    const btns = [...document.querySelectorAll("#snap-box .choice")];
+    const onPick = (btn) => {
+      if (!alive) return;
+      const saidMatch = btn.dataset.v === "1";
+      const ok = saidMatch === isMatch;
+      gameLog(row.k, "meaning", "snap", ok);
+      if (ok) { score++; streak++; best = Math.max(best, streak); ask(); }
+      else {
+        streak = 0;
+        btns.forEach((b) => { b.disabled = true; if ((b.dataset.v === "1") === isMatch) b.classList.add("correct"); });
+        btn.classList.add("wrong");
+        setTimeout(ask, 650);
+      }
+      updateHud();
+    };
+    btns.forEach((b) => (b.onclick = () => onPick(b)));
+    keyOnce((e) => { const n = parseInt(e.key, 10); if ((n === 1 || n === 2) && !btns[0].disabled) { onPick(btns[n - 1]); return true; } return false; });
+  };
+  const updateHud = () => {
+    const t = $("#snap-time"); if (!t) return;
+    t.textContent = timeLeft;
+    $("#snap-score").textContent = score;
+    $("#snap-streak").textContent = streak;
+  };
+  setMain(`
+    <h1>Snap judgment</h1>
+    <div class="lightning-hud">
+      <span>⏱ <b id="snap-time">45</b>s</span><span>Score <b id="snap-score">0</b></span><span>Streak <b id="snap-streak">0</b></span>
+    </div>
+    <div class="quiz-wrap"><div class="quiz-card" id="snap-box"></div></div>
+    <div class="row" style="justify-content:center;margin-top:16px"><button class="ghost-btn" onclick="location.hash='#/games'">Quit</button></div>`);
+  gameTimer((t) => {
+    timeLeft--;
+    if (timeLeft <= 0) {
+      alive = false; clearInterval(t);
+      $("#snap-box").innerHTML = `
+        <div class="q-kind">Time!</div>
+        <div class="q-prompt-text">${score} correct · best streak ${best}</div>
+        <div class="row" style="justify-content:center">
+          <button class="primary-btn" id="snap-again">Again</button>
+          <button class="ghost-btn" onclick="location.hash='#/games'">Done</button>
+        </div>`;
+      $("#snap-again").onclick = snapGame;
+    }
+    updateHud();
+  }, "snap-time");
+  ask();
+}
+
+// ---------------------------------------------------------------- survival
+
+function survivalGame() {
+  let lives = 3, score = 0, idx = 0;
+  const hearts = () => "♥".repeat(lives) + "♡".repeat(3 - lives);
+  const ask = () => {
+    if (!document.getElementById("sv-box")) return;
+    while (idx < S.kanji.length && !S.kanji[idx].meanings.length) idx++;
+    if (idx >= S.kanji.length) return end();
+    const row = S.kanji[idx];
+    const facet = primaryReading(row) && Math.random() < 0.4 ? "reading" : "meaning";
+    let answer, choices, jp;
+    if (facet === "reading") {
+      answer = primaryReading(row);
+      choices = shuffle([answer, ...pickReadingDistractors(row, 3)]);
+      jp = "jp";
+    } else {
+      answer = row.meanings[0];
+      choices = shuffle([answer, ...pickMeaningDistractors(row, 3)]);
+      jp = "";
+    }
+    $("#sv-rank").textContent = "#" + (idx + 1);
+    $("#sv-box").innerHTML = `
+      <div class="q-kind">${facet === "reading" ? "Pick a correct reading" : "What does this mean?"}</div>
+      <div class="q-prompt-kanji" style="font-size:80px">${row.k}</div>
+      <div class="choices">${choices.map((c, i) =>
+        `<button class="choice ${jp}" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}
+      </div>`;
+    const btns = [...document.querySelectorAll("#sv-box .choice")];
+    const onPick = (btn) => {
+      const ok = btn.dataset.c === answer;
+      gameLog(row.k, facet, "survival", ok);
+      if (ok) { score++; idx++; updateHud(); ask(); return; }
+      lives--;
+      btns.forEach((b) => { b.disabled = true; if (b.dataset.c === answer) b.classList.add("correct"); });
+      btn.classList.add("wrong");
+      updateHud();
+      if (lives === 0) { setTimeout(end, 900); } else { idx++; setTimeout(ask, 900); }
+    };
+    btns.forEach((b) => (b.onclick = () => onPick(b)));
+    keyOnce((e) => { const n = parseInt(e.key, 10); if (n >= 1 && n <= choices.length && !btns[0].disabled) { onPick(btns[n - 1]); return true; } return false; });
+  };
+  const updateHud = () => {
+    const h = $("#sv-lives"); if (!h) return;
+    h.textContent = hearts();
+    $("#sv-score").textContent = score;
+  };
+  const end = () => {
+    if (!document.getElementById("sv-box")) return;
+    $("#sv-box").innerHTML = `
+      <div class="q-kind">Run over</div>
+      <div class="q-prompt-text">${score} correct · reached rank #${idx + 1}</div>
+      <div class="row" style="justify-content:center">
+        <button class="primary-btn" id="sv-again">Again</button>
+        <button class="ghost-btn" onclick="location.hash='#/games'">Done</button>
+      </div>`;
+    $("#sv-again").onclick = survivalGame;
+  };
+  setMain(`
+    <h1>Survival</h1>
+    <div class="lightning-hud">
+      <span style="color:var(--bad)"><b id="sv-lives">${hearts()}</b></span>
+      <span>Score <b id="sv-score">0</b></span>
+      <span>Rank <b id="sv-rank">#1</b></span>
+    </div>
+    <div class="quiz-wrap"><div class="quiz-card" id="sv-box"></div></div>
+    <div class="row" style="justify-content:center;margin-top:16px"><button class="ghost-btn" onclick="location.hash='#/games'">Quit</button></div>`);
+  ask();
+}
+
 function lightningGame() {
   const pool = activePool();
-  let score = 0, streak = 0, best = 0, timeLeft = 60, timer = null, alive = true;
+  let score = 0, streak = 0, best = 0, timeLeft = 60, alive = true;
   const ask = () => {
     if (!alive) return;
     const row = pick(pool);
@@ -889,7 +1175,8 @@ function lightningGame() {
     keyOnce((e) => { const n = parseInt(e.key, 10); if (n >= 1 && n <= 4) { onPick(btns[n - 1]); return true; } return false; });
   };
   const updateHud = () => {
-    $("#lh-time").textContent = timeLeft;
+    const t = $("#lh-time"); if (!t) return;
+    t.textContent = timeLeft;
     $("#lh-score").textContent = score;
     $("#lh-streak").textContent = streak;
   };
@@ -900,11 +1187,11 @@ function lightningGame() {
     </div>
     <div class="quiz-wrap"><div class="quiz-card" id="lq"></div></div>
     <div class="row" style="justify-content:center;margin-top:16px"><button class="ghost-btn" id="lq-quit">Quit</button></div>`);
-  $("#lq-quit").onclick = () => { alive = false; clearInterval(timer); location.hash = "#/games"; };
-  timer = setInterval(() => {
+  $("#lq-quit").onclick = () => { alive = false; location.hash = "#/games"; };
+  gameTimer((t) => {
     timeLeft--;
     if (timeLeft <= 0) {
-      alive = false; clearInterval(timer);
+      alive = false; clearInterval(t);
       $("#lq").innerHTML = `
         <div class="q-kind">Time!</div>
         <div class="q-prompt-text">${score} correct · best streak ${best}</div>
@@ -915,7 +1202,7 @@ function lightningGame() {
       $("#lq-again").onclick = lightningGame;
     }
     updateHud();
-  }, 1000);
+  }, "lh-time");
   ask();
 }
 
