@@ -2,6 +2,7 @@
 data/trainer.db
 data/trainer.db-wal
 data/trainer.db-shm
+data/trainer.db.bak
 
 __pycache__/
 *.pyc

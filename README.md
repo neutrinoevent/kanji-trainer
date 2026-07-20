@@ -61,6 +61,14 @@ data/kanji.json  the 3,122-kanji dataset
 data/trainer.db  your progress (created on first run; back this up)
 ```
 
+## Updating
+
+Close the app, then double-click `update.bat` (Windows) or run `./update.sh`
+(macOS/Linux). It fetches the latest version from GitHub and replaces the app
+files. Your progress is not touched: `data/trainer.db` is left alone and a
+backup is written to `data/trainer.db.bak` first. It works for git clones
+(via `git pull`) and plain downloaded folders (via a zip download) alike.
+
 ## Sharing with someone else
 
 Zip the folder (leave out `data/trainer.db` so they start fresh) and send it.
