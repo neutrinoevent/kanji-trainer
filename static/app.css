@@ -305,6 +305,36 @@ h2 { font-size: 17px; margin: 26px 0 12px; }
   border-radius: 8px; padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.3);
 }
 
+/* ============================================================ learning path */
+.path-wrap { position: relative; max-width: 520px; margin: 0 auto; padding: 6px 0 70px; }
+.path-wrap::before {
+  content: ""; position: absolute; left: 50%; top: 0; bottom: 0;
+  border-left: 2px dashed var(--grid);
+}
+.path-row { position: relative; display: flex; justify-content: center; margin: 20px 0; }
+.path-step { display: flex; flex-direction: column; align-items: center; gap: 2px; z-index: 1; }
+.path-node {
+  width: 64px; height: 64px; border-radius: 50%;
+  border: 2px solid var(--border); background: var(--surface);
+  font-size: 26px; line-height: 1; transition: transform .15s;
+}
+.path-node:hover:not(:disabled) { transform: scale(1.08); border-color: var(--accent); }
+.path-node:disabled { opacity: .4; cursor: default; font-size: 20px; }
+.path-node.done { border-color: var(--good); background: color-mix(in srgb, var(--good) 13%, var(--surface)); }
+.path-node.current {
+  border-color: var(--accent);
+  animation: path-pulse 1.8s ease-in-out infinite;
+}
+@keyframes path-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent); }
+  50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 12%, transparent); }
+}
+.path-stars { color: var(--warn); font-size: 13px; letter-spacing: 2px; min-height: 17px; }
+.path-label { font-size: 12px; color: var(--muted); max-width: 120px; text-align: center; }
+.path-label.jp { font-family: var(--jp); font-size: 14px; letter-spacing: 2px; }
+.path-section { text-align: center; margin: 34px 0 4px; position: relative; z-index: 1; }
+.path-section .pill { background: var(--surface); border: 1px solid var(--border); padding: 4px 14px; }
+
 /* ============================================================ guided tour */
 #tour-root { position: fixed; inset: 0; z-index: 100; }
 .tour-spot {

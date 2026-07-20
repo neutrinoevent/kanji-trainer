@@ -24,6 +24,11 @@ port: `python server.py 8080`.
 - **Tracks and batches.** Study by frequency rank, JLPT level (N5 to N1),
   school grade (1 to 6 plus secondary), or jinmeiyō name kanji. Within every
   track, kanji are ordered most common first. Batch size is configurable.
+- **A guided path.** A step-by-step road through the most common kanji, five
+  at a time: a learn step, a quiz step, a match round every third unit, and a
+  checkpoint every fifth. Steps earn one to three stars and unlock in order.
+  It feeds the same review schedule as the rest of the app, so you can mix
+  the path with batches freely.
 - **Shared progress across sets.** A kanji that appears in several sets (日 is
   in the frequency, Grade 1, and N5 sets at once) has exactly one meaning card
   and one reading card. Starting a batch adds only the kanji you don't already

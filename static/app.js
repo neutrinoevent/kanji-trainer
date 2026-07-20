@@ -231,6 +231,8 @@ function buildQuestion(item) {
 
 const routes = {};
 function navigate() {
+  // drop any quiz/game key handler left over from the previous screen
+  if (keyHandler) { document.removeEventListener("keydown", keyHandler); keyHandler = null; }
   const hash = location.hash || "#/";
   const [_, name, arg] = hash.match(/^#\/([\w-]*)\/?(.*)$/) || [];
   const view = routes[name || "dashboard"] || routes.dashboard;
@@ -266,6 +268,8 @@ function bindTips(root) {
 const TOUR_STEPS = [
   { sel: null, title: "Welcome to Kanji Trainer",
     body: "This app teaches the most useful kanji first, a small batch at a time. Here's a one-minute tour of where things are." },
+  { sel: '[data-nav="path"]', title: "Path",
+    body: "A guided road, five kanji at a time: learn them, quiz them, clear a checkpoint every few steps. It feeds the same review schedule as everything else, so use it as much or as little as you like." },
   { sel: '[data-nav="study"]', title: "Batches",
     body: "Pick a track: newspaper frequency, JLPT level, school grade, or name kanji. Start Batch 1 to add its kanji to your rotation. A kanji shared by several sets is only ever added once." },
   { sel: '[data-nav="review"]', title: "Review",
@@ -416,9 +420,10 @@ function nextBatchHint(stats) {
       <div class="start-kanji">始</div>
       <div class="start-body">
         <h2 style="margin:0 0 6px">Start your first batch</h2>
-        <p style="margin:0 0 16px;color:var(--ink-2)">Top frequency Batch 1 covers the ${S.settings.batch_size} most common kanji in newspapers. A batch and a few minutes of review a day is the whole routine.</p>
+        <p style="margin:0 0 16px;color:var(--ink-2)">Follow the guided path five kanji at a time, or start a batch of ${S.settings.batch_size} from any track. A few minutes of review a day is the whole routine.</p>
         <div class="row">
-          <button class="primary-btn" onclick="location.hash='#/study'">Choose a batch</button>
+          <button class="primary-btn" onclick="location.hash='#/path'">Follow the path</button>
+          <button class="ghost-btn" onclick="location.hash='#/study'">Choose a batch</button>
           <button class="ghost-btn" id="replay-tour">Replay the walkthrough</button>
         </div>
       </div>
@@ -811,8 +816,21 @@ function sessionDone(sess) {
 
 // ================================================================ games
 
-routes.games = async () => {
+const GAME_LAUNCHERS = {
+  match: () => matchGame("meaning"),
+  reading: () => matchGame("reading"),
+  memory: () => memoryGame(),
+  odd: () => oddOneOutGame(),
+  snap: () => snapGame(),
+  lightning: () => lightningGame(),
+  survival: () => survivalGame(),
+  horde: () => hordeGame(),
+};
+
+routes.games = async (arg) => {
   await loadState();
+  // each game lives at #/games/<id> so Quit/Done (hash back to #/games) always works
+  if (arg && GAME_LAUNCHERS[arg]) return GAME_LAUNCHERS[arg]();
   setMain(`
     <h1>Games</h1>
     <p class="sub">Extra practice with the kanji you've started. Games don't affect your review schedule, but results count in your stats.</p>
@@ -820,20 +838,18 @@ routes.games = async () => {
       <div class="game-card" id="g-match"><h3>🀄 Match pairs</h3><p>Match kanji to meanings against the clock. 6 pairs per round.</p></div>
       <div class="game-card" id="g-match-r"><h3>🔊 Reading pairs</h3><p>Same idea, but match each kanji to one of its readings.</p></div>
       <div class="game-card" id="g-memory"><h3>🎴 Memory flip</h3><p>Twelve face-down cards. Find the kanji and meaning pairs from memory.</p></div>
-      <div class="game-card" id="g-odd"><h3>🕵️ Odd one out</h3><p>Three of the four kanji share an on-reading. Spot the one that doesn't.</p></div>
+      <div class="game-card" id="g-odd"><h3>🕵️ Odd one out</h3><p>Three of the four kanji are pronounced with the same on-reading. Find the one that sounds different.</p></div>
       <div class="game-card" id="g-snap"><h3>👍 Snap judgment</h3><p>45 seconds of true or false: does this meaning belong to this kanji?</p></div>
       <div class="game-card" id="g-lightning"><h3>⚡ Lightning round</h3><p>60 seconds. As many correct answers as you can. Streaks count.</p></div>
       <div class="game-card" id="g-survival"><h3>❤️ Survival</h3><p>Three lives, no timer. Questions march down the frequency list and get harder as you go.</p></div>
       <div class="game-card" id="g-horde"><h3>🧟 Kanji horde</h3><p>Zombies shamble toward your gate. Each correct answer cuts down the closest one. Hold the line.</p></div>
     </div>`);
-  $("#g-match").onclick = () => matchGame("meaning");
-  $("#g-match-r").onclick = () => matchGame("reading");
-  $("#g-memory").onclick = memoryGame;
-  $("#g-odd").onclick = oddOneOutGame;
-  $("#g-snap").onclick = snapGame;
-  $("#g-lightning").onclick = lightningGame;
-  $("#g-survival").onclick = survivalGame;
-  $("#g-horde").onclick = hordeGame;
+  const launch = { "g-match": "match", "g-match-r": "reading", "g-memory": "memory",
+    "g-odd": "odd", "g-snap": "snap", "g-lightning": "lightning",
+    "g-survival": "survival", "g-horde": "horde" };
+  for (const [el, id] of Object.entries(launch)) {
+    $("#" + el).onclick = () => (location.hash = "#/games/" + id);
+  }
 };
 
 function primaryReading(r) {
@@ -853,10 +869,11 @@ function gameTimer(fn, probeId) {
 
 // ---------------------------------------------------------------- match pairs
 
-function matchGame(kind) {
-  const source = kind === "reading" ? activePool().filter((r) => primaryReading(r)) : activePool();
+function matchGame(kind, opts = {}) {
+  const base = opts.pool || activePool();
+  const source = kind === "reading" ? base.filter((r) => primaryReading(r)) : base;
   const pool = shuffle(source).slice(0, 6);
-  const title = kind === "reading" ? "Reading pairs" : "Match pairs";
+  const title = opts.title || (kind === "reading" ? "Reading pairs" : "Match pairs");
   const tiles = shuffle([
     ...pool.map((r) => ({ id: r.k, kind: "k", text: r.k })),
     ...pool.map((r) => ({ id: r.k, kind: "m", text: kind === "reading" ? primaryReading(r) : r.meanings[0] })),
@@ -869,7 +886,7 @@ function matchGame(kind) {
     <div class="match-grid">
       ${tiles.map((t, i) => `<button class="match-tile ${t.kind === "k" || kind === "reading" ? "jp" : ""}" data-i="${i}">${esc(t.text)}</button>`).join("")}
     </div>
-    <div class="row" style="justify-content:center"><button class="ghost-btn" onclick="location.hash='#/games'">← Games</button></div>`);
+    <div class="row" style="justify-content:center"><button class="ghost-btn" onclick="location.hash='${opts.backHash || "#/games"}'">← Back</button></div>`);
   const els = [...document.querySelectorAll(".match-tile")];
   els.forEach((el) => (el.onclick = () => {
     const t = tiles[+el.dataset.i];
@@ -881,6 +898,7 @@ function matchGame(kind) {
       solved++;
       if (solved === 6) {
         const secs = Math.round((Date.now() - t0) / 1000);
+        if (opts.onDone) return opts.onDone({ secs, misses });
         $("#match-status").innerHTML = `<b style="color:var(--good)">Cleared in ${secs}s with ${misses} miss${misses === 1 ? "" : "es"}!</b> &nbsp;<button class="ghost-btn" id="match-again">Play again</button>`;
         $("#match-again").onclick = () => matchGame(kind);
       }
@@ -982,7 +1000,8 @@ function oddOneOutGame() {
     if (!r) { $("#odd-box").innerHTML = `<div class="q-prompt-text">Not enough shared readings to play yet.</div>`; return; }
     $("#odd-round").textContent = `${round + 1} / ${TOTAL}`;
     $("#odd-box").innerHTML = `
-      <div class="q-kind">Three share an on-reading. Which doesn't?</div>
+      <div class="q-kind">Which kanji sounds different?</div>
+      <p style="margin:0;color:var(--ink-2);font-size:14px">Three of these four share the same on-reading (the Chinese-derived pronunciation). Pick the one that is <b>not</b> read that way.</p>
       <div class="choices choices-4">${r.options.map((o, i) =>
         `<button class="choice jp" data-k="${o.k}"><span class="key-hint">${i + 1}</span>${o.k}</button>`).join("")}
       </div>
@@ -998,10 +1017,11 @@ function oddOneOutGame() {
         else if (b === btn && !ok) b.classList.add("wrong");
       });
       const oddRow = r.odd;
+      const oddOn = oddRow.on.map((x) => x.replace(/[-.]/g, "")).filter(Boolean);
       $("#odd-fb").innerHTML = `
         <div class="verdict ${ok ? "ok" : "no"}">${ok ? "Correct!" : "Not quite"}</div>
-        <div class="detail">${r.trio.map((t) => t.k).join(" ")} share <span class="jp">${r.reading}</span>.
-          <span class="jp">${oddRow.k}</span> (${esc(oddRow.meanings[0])}) reads <span class="jp">${primaryReading(oddRow) || "—"}</span>.</div>`;
+        <div class="detail"><span class="jp">${r.trio.map((t) => t.k).join("・")}</span> are all read <span class="jp">${r.reading}</span>.
+          The odd one was <span class="jp">${oddRow.k}</span> (${esc(oddRow.meanings[0])}), read <span class="jp">${oddOn.join("・") || primaryReading(oddRow) || "—"}</span>.</div>`;
       round++;
       setTimeout(ask, 1900);
     };
@@ -1435,6 +1455,216 @@ function badgeSection(st) {
           </div>`).join("")}
       </div>
     </div>`;
+}
+
+// ================================================================ learning path
+
+const NODE_META = {
+  learn: { icon: "📖", label: "Learn" },
+  quiz: { icon: "✏️", label: "Quiz" },
+  game: { icon: "🎲", label: "Match" },
+  boss: { icon: "🏯", label: "Checkpoint" },
+};
+
+function pathNodes() {
+  const topN = Math.min(S.settings.top_n, S.kanji.length);
+  const units = Math.floor(topN / 5);
+  const nodes = [];
+  for (let u = 0; u < units; u++) {
+    const chars = S.kanji.slice(u * 5, u * 5 + 5);
+    nodes.push({ id: `u${u}-learn`, type: "learn", unit: u, chars });
+    nodes.push({ id: `u${u}-quiz`, type: "quiz", unit: u, chars });
+    if (u % 3 === 2) {
+      nodes.push({ id: `u${u}-game`, type: "game", unit: u,
+                   chars: S.kanji.slice(Math.max(0, u * 5 - 10), u * 5 + 5) });
+    }
+    if (u % 5 === 4) {
+      nodes.push({ id: `u${u}-boss`, type: "boss", unit: u,
+                   chars: S.kanji.slice((u - 4) * 5, u * 5 + 5) });
+    }
+  }
+  return nodes;
+}
+
+async function pathMark(id, stars) {
+  const cur = S.settings.path || {};
+  cur[id] = Math.max(cur[id] || 0, stars);
+  S.settings.path = cur;
+  await api("/api/settings", { path: cur }).catch(() => {});
+}
+
+routes.path = async () => {
+  await loadState();
+  const nodes = pathNodes();
+  const done = S.settings.path || {};
+  let firstOpen = nodes.findIndex((n) => !done[n.id]);
+  if (firstOpen === -1) firstOpen = nodes.length;
+  const doneCount = nodes.filter((n) => done[n.id]).length;
+
+  let html = `
+    <h1>Path</h1>
+    <p class="sub">A guided road through the most common kanji, five at a time: learn them, quiz them, and clear a checkpoint every few steps. ${doneCount} of ${nodes.length} steps done.</p>
+    <div class="path-wrap">`;
+  nodes.forEach((n, i) => {
+    if (n.type === "learn" && n.unit % 4 === 0) {
+      html += `<div class="path-section"><span class="pill">Kanji #${n.unit * 5 + 1}–${Math.min((n.unit + 4) * 5, S.settings.top_n)}</span></div>`;
+    }
+    const stars = done[n.id] || 0;
+    const state = stars ? "done" : i === firstOpen ? "current" : i < firstOpen ? "done" : "locked";
+    const offset = Math.round(Math.sin(i * 0.85) * 95);
+    const label = n.type === "learn" ? n.chars.map((r) => r.k).join("") : NODE_META[n.type].label;
+    html += `
+      <div class="path-row">
+        <div class="path-step" style="transform:translateX(${offset}px)">
+          <button class="path-node ${n.type} ${state}" data-i="${i}" ${state === "locked" ? "disabled" : ""}
+                  title="${NODE_META[n.type].label}">${state === "locked" ? "🔒" : NODE_META[n.type].icon}</button>
+          <span class="path-stars">${stars ? "★".repeat(stars) : ""}</span>
+          <span class="path-label ${n.type === "learn" ? "jp" : ""}">${label}</span>
+        </div>
+      </div>`;
+  });
+  html += `</div>`;
+  setMain(html);
+  document.querySelectorAll(".path-node:not(:disabled)").forEach((el) => {
+    el.onclick = () => {
+      const n = nodes[+el.dataset.i];
+      if (n.type === "learn") pathLearn(n);
+      else if (n.type === "quiz") pathQuiz(n, false);
+      else if (n.type === "boss") pathQuiz(n, true);
+      else pathGame(n);
+    };
+  });
+  const cur = document.querySelector(".path-node.current");
+  if (cur) cur.scrollIntoView({ block: "center" });
+};
+
+function pathLearn(node) {
+  let i = 0;
+  const show = () => {
+    if (!document.getElementById("main")) return;
+    const r = node.chars[i];
+    setMain(`
+      <div class="quiz-wrap">
+        <div class="quiz-top"><span>New kanji ${i + 1} / ${node.chars.length}</span>
+          <div class="meter q-progress"><i style="width:${(i / node.chars.length) * 100}%"></i></div>
+          <button class="ghost-btn" id="p-back" style="padding:4px 10px;font-size:12px">← Path</button></div>
+        <div class="quiz-card intro-card">
+          <div class="q-kind">Meet this kanji</div>
+          <div class="q-prompt-kanji">${r.k}</div>
+          <div class="intro-rows">
+            <dl class="kv">
+              <dt>Meanings</dt><dd>${esc(r.meanings.join(", "))}</dd>
+              <dt>On</dt><dd class="jp">${r.on.join("、") || "—"}</dd>
+              <dt>Kun</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
+              <dt>Rank</dt><dd>#${r.freq || "—"} by frequency</dd>
+            </dl>
+          </div>
+          <button class="primary-btn" id="p-next">${i === node.chars.length - 1 ? "Finish" : "Got it →"}</button>
+          <div class="continue-hint">Enter ↵</div>
+        </div>
+      </div>`);
+    $("#p-back").onclick = () => routes.path();
+    let advanced = false;
+    const go = async () => {
+      if (advanced) return; advanced = true;
+      i++;
+      if (i < node.chars.length) return show();
+      await api("/api/srs/start", { kanji: node.chars.map((r) => r.k) }).catch(() => {});
+      await pathMark(node.id, 3);
+      routes.path();
+    };
+    $("#p-next").onclick = go;
+    keyOnce((e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); return true; } return false; });
+  };
+  show();
+}
+
+function pathQuiz(node, boss) {
+  const qcount = boss ? 12 : 8;
+  const passAt = boss ? 9 : 6;
+  const qs = [];
+  for (const r of node.chars) {
+    qs.push({ r, facet: "meaning" });
+    if (primaryReading(r)) qs.push({ r, facet: "reading" });
+  }
+  const questions = shuffle(qs).slice(0, qcount);
+  let i = 0, score = 0;
+  const title = boss ? "Checkpoint" : "Quiz";
+
+  const finish = async () => {
+    const passed = score >= passAt;
+    const stars = score === questions.length ? 3 : score >= questions.length - 1 ? 2 : passed ? 1 : 0;
+    if (passed) await pathMark(node.id, stars);
+    $("#pq-box").innerHTML = `
+      <div class="q-kind">${passed ? "Cleared!" : "Not this time"}</div>
+      <div class="q-prompt-text">${score} / ${questions.length}${passed ? ` · ${"★".repeat(stars)}` : ""}</div>
+      ${passed ? "" : `<p style="color:var(--ink-2);margin:0 0 14px">You need ${passAt} to pass.</p>`}
+      <div class="row" style="justify-content:center">
+        ${passed ? `<button class="primary-btn" id="pq-cont">Continue</button>`
+                 : `<button class="primary-btn" id="pq-retry">Try again</button>`}
+        <button class="ghost-btn" id="pq-exit">Back to path</button>
+      </div>`;
+    const c = $("#pq-cont"), rt = $("#pq-retry");
+    if (c) c.onclick = () => routes.path();
+    if (rt) rt.onclick = () => pathQuiz(node, boss);
+    $("#pq-exit").onclick = () => routes.path();
+  };
+
+  const ask = () => {
+    if (!document.getElementById("pq-box")) return;
+    if (i >= questions.length) return finish();
+    const { r, facet } = questions[i];
+    const answer = facet === "reading" ? primaryReading(r) : r.meanings[0];
+    const distractors = facet === "reading" ? pickReadingDistractors(r, 3) : pickMeaningDistractors(r, 3);
+    const choices = shuffle([answer, ...distractors]);
+    const jp = facet === "reading" ? "jp" : "";
+    $("#pq-round").textContent = `${i + 1} / ${questions.length}`;
+    $("#pq-score").textContent = score;
+    $("#pq-box").innerHTML = `
+      <div class="q-kind">${facet === "reading" ? "Pick a correct reading" : "What does this mean?"}</div>
+      <div class="q-prompt-kanji" style="font-size:80px">${r.k}</div>
+      <div class="choices">${choices.map((c, x) =>
+        `<button class="choice ${jp}" data-c="${esc(c)}"><span class="key-hint">${x + 1}</span>${esc(c)}</button>`).join("")}
+      </div>`;
+    const btns = [...document.querySelectorAll("#pq-box .choice")];
+    const onPick = (btn) => {
+      const ok = btn.dataset.c === answer;
+      gameLog(r.k, facet, boss ? "path-boss" : "path-quiz", ok);
+      i++;
+      if (ok) { score++; ask(); return; }
+      btns.forEach((b) => { b.disabled = true; if (b.dataset.c === answer) b.classList.add("correct"); });
+      btn.classList.add("wrong");
+      setTimeout(ask, 900);
+    };
+    btns.forEach((b) => (b.onclick = () => onPick(b)));
+    keyOnce((e) => { const n = parseInt(e.key, 10); if (n >= 1 && n <= 4 && !btns[0].disabled) { onPick(btns[n - 1]); return true; } return false; });
+  };
+
+  setMain(`
+    <h1>${title}</h1>
+    <div class="lightning-hud">
+      <span>Question <b id="pq-round">1 / ${questions.length}</b></span>
+      <span>Correct <b id="pq-score">0</b></span>
+      <span>Pass at <b>${passAt}</b></span>
+    </div>
+    <div class="quiz-wrap"><div class="quiz-card" id="pq-box"></div></div>
+    <div class="row" style="justify-content:center;margin-top:16px"><button class="ghost-btn" id="pq-quit">← Path</button></div>`);
+  $("#pq-quit").onclick = () => routes.path();
+  ask();
+}
+
+function pathGame(node) {
+  matchGame("meaning", {
+    pool: node.chars,
+    title: "Path: match pairs",
+    backHash: "#/path",
+    onDone: async ({ misses }) => {
+      const stars = misses === 0 ? 3 : misses <= 3 ? 2 : 1;
+      await pathMark(node.id, stars);
+      $("#match-status").innerHTML = `<b style="color:var(--good)">Cleared! ${"★".repeat(stars)}</b> &nbsp;<button class="primary-btn" id="p-cont">Continue</button>`;
+      $("#p-cont").onclick = () => routes.path();
+    },
+  });
 }
 
 // ================================================================ stats

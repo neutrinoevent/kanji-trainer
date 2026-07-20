@@ -30,6 +30,7 @@ DEFAULT_SETTINGS = {
     "theme": "dark",
     "session_size": 20,
     "tour_done": False,
+    "path": {},          # learning-path progress: node id -> stars (1-3)
 }
 
 # ---------------------------------------------------------------- data
@@ -470,6 +471,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/settings":
             save_settings(body)
             return self.send_json({"ok": True, "settings": get_settings()})
+
+        if path == "/api/srs/start":
+            chars = [c for c in body.get("kanji", []) if c in KANJI_INDEX]
+            conn = db()
+            added = 0
+            for ch in chars:
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO srs(kanji, facet) VALUES(?, 'meaning')", (ch,)
+                )
+                conn.execute(
+                    "INSERT OR IGNORE INTO srs(kanji, facet) VALUES(?, 'reading')", (ch,)
+                )
+                if cur.rowcount:
+                    added += 1
+            conn.commit()
+            return self.send_json({"ok": True, "added": added,
+                                   "already": len(chars) - added})
 
         if path == "/api/batch/start":
             cid = body.get("collection", "freq")
