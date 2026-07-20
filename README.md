@@ -47,9 +47,14 @@ port: `python server.py 8080`.
   march down the frequency list and get harder), and Kanji Horde (pixel-art
   zombies advance on your gate; each correct answer cuts down the closest one).
   Games count in your stats but don't affect the review schedule.
-- **Badges.** Twenty of them on the Stats page, from 初陣 (First Battle) to
-  常用制覇 (Jōyō Conquest), covering streaks, volume, coverage, night-owl and
-  early-riser reviews, and zombie hunting.
+- **XP, levels, and ranks.** Every answer and path star earns XP. Levels climb
+  through ten Japanese-flavored ranks, from 見習い (Apprentice) to 漢字王
+  (Kanji King), with a progress bar on the dashboard and daily goals that
+  reset at midnight.
+- **Badges and charms.** Thirty badges on the Stats page, from 初陣 (First
+  Battle) to 常用制覇 (Jōyō Conquest), covering streaks, volume, coverage,
+  path progress, night-owl reviews, and zombie hunting. Treasure chests along
+  the path hold twelve collectible charms (招き猫, 鳥居, 折鶴, ...).
 - **Stats.** Daily activity, a 4-month heatmap, per-batch mastery, jōyō
   coverage, accuracy, day streak, and your most-missed kanji.
 - **Persistence.** Everything is stored in a local SQLite database

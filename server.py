@@ -296,6 +296,14 @@ def get_stats(settings):
         streak += 1
         d -= timedelta(days=1)
 
+    trow = conn.execute(
+        "SELECT COUNT(*) n, SUM(correct) c FROM reviews WHERE day=?",
+        (today_local(),),
+    ).fetchone()
+    today_modes = [r["mode"] for r in conn.execute(
+        "SELECT DISTINCT mode FROM reviews WHERE day=?", (today_local(),)
+    )]
+
     modes = {}
     for r in conn.execute(
         "SELECT mode, COUNT(*) n, SUM(correct) c FROM reviews GROUP BY mode"
@@ -359,6 +367,8 @@ def get_stats(settings):
         "hardest": hardest,
         "modes": modes,
         "hours": hours,
+        "today": {"n": trow["n"] or 0, "correct": trow["c"] or 0,
+                  "modes": today_modes},
         "collections": collections,
         "learned": learned,
         "mature": mature,

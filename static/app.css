@@ -305,6 +305,49 @@ h2 { font-size: 17px; margin: 26px 0 12px; }
   border-radius: 8px; padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.3);
 }
 
+/* ============================================================ xp / rewards */
+.level-card {
+  display: flex; align-items: center; gap: 18px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 20px; margin-bottom: 14px;
+}
+.rank-kanji {
+  font-family: var(--jp); font-size: 34px; line-height: 1;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  color: var(--accent); border-radius: 12px; padding: 12px; flex-shrink: 0;
+}
+.level-body { flex: 1; min-width: 0; }
+
+.goal-row { display: flex; align-items: center; gap: 10px; margin: 9px 0; font-size: 14px; }
+.goal-check { width: 20px; text-align: center; color: var(--muted); font-weight: 700; }
+.goal-row.done .goal-check { color: var(--good); }
+.goal-label { width: 190px; color: var(--ink-2); }
+.goal-row.done .goal-label { color: var(--ink); }
+.goal-meter { flex: 1; height: 8px; }
+.goal-row.done .goal-meter i { background: var(--good); }
+.goal-val { width: 46px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+
+.gift-chest {
+  font-size: 64px; background: none; border: none; line-height: 1;
+  transition: transform .15s; animation: chest-wiggle 2.2s ease-in-out infinite;
+}
+.gift-chest:hover { transform: scale(1.15); }
+@keyframes chest-wiggle {
+  0%, 86%, 100% { rotate: 0deg; }
+  90% { rotate: -7deg; } 94% { rotate: 7deg; } 98% { rotate: -3deg; }
+}
+.gift-charm { font-size: 64px; line-height: 1.2; animation: charm-pop .5s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes charm-pop { from { transform: scale(0); } to { transform: scale(1); } }
+
+.toast {
+  position: fixed; left: 50%; bottom: 34px; transform: translate(-50%, 20px);
+  background: var(--surface-2); color: var(--ink); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 99px; padding: 10px 22px; font-weight: 700; font-size: 15px;
+  opacity: 0; transition: all .3s ease; z-index: 200; box-shadow: 0 8px 30px rgba(0,0,0,.35);
+  pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
 /* ============================================================ learning path */
 .path-wrap { position: relative; max-width: 520px; margin: 0 auto; padding: 6px 0 70px; }
 .path-wrap::before {

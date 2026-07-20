@@ -369,9 +369,21 @@ routes.dashboard = async () => {
   const days14 = lastNDays(14).map((d) => ({ d, ...(stats.days[d] || { n: 0, correct: 0 }) }));
   const maxN = Math.max(1, ...days14.map((x) => x.n));
 
+  const today = stats.today || { n: 0, correct: 0, modes: [] };
+  const extraModes = [...GAME_MODE_IDS, "path-quiz", "path-boss"];
+  const didExtra = today.modes.some((m) => extraModes.includes(m));
+  const goal = (label, cur, target, done) => `
+    <div class="goal-row ${done ? "done" : ""}">
+      <span class="goal-check">${done ? "✓" : "○"}</span>
+      <span class="goal-label">${label}</span>
+      <div class="meter goal-meter"><i style="width:${Math.min(100, Math.round((cur / target) * 100))}%"></i></div>
+      <span class="goal-val">${Math.min(cur, target)}/${target}</span>
+    </div>`;
+
   setMain(`
     <h1>Dashboard</h1>
     <p class="sub">${stats.in_rotation ? `${stats.in_rotation} kanji in rotation.` : "No kanji in rotation yet. Start a batch to begin."}</p>
+    ${levelCard(stats)}
     <div class="tiles">
       <div class="tile"><div class="t-label">Queue now</div><div class="t-value">${totalQueue}</div><div class="t-sub">${S.dueCount} due · ${S.newCount} new</div></div>
       <div class="tile"><div class="t-label">Streak</div><div class="t-value">${stats.streak}</div><div class="t-sub">day${stats.streak === 1 ? "" : "s"} in a row</div></div>
@@ -383,6 +395,13 @@ routes.dashboard = async () => {
       <button class="primary-btn" id="go-review" ${totalQueue ? "" : "disabled"}>⚡ Review ${totalQueue ? `(${totalQueue})` : ""}</button>
       <button class="ghost-btn" id="go-study">Browse batches</button>
       <button class="ghost-btn" id="go-games">Play a game</button>
+    </div>
+    <div class="card chart-card">
+      <div class="chart-title">Today's goals</div>
+      <div class="chart-sub">Reset at midnight. No pressure, just momentum.</div>
+      ${goal("Answer 20 questions", today.n, 20, today.n >= 20)}
+      ${goal("Get 15 right", today.correct, 15, today.correct >= 15)}
+      ${goal("Play a game or path step", didExtra ? 1 : 0, 1, didExtra)}
     </div>
     <div class="card chart-card">
       <div class="chart-title">Answers per day</div>
@@ -1437,10 +1456,24 @@ const BADGES = [
   { kanji: "門番", name: "Gatekeeper", desc: "Defend the gate in Kanji Horde", test: (s) => (s.modes?.horde?.n || 0) >= 1 },
   { kanji: "鬼退治", name: "Oni Hunter", desc: "Cut down 100 zombies", test: (s) => (s.modes?.horde?.c || 0) >= 100 },
   { kanji: "何でも屋", name: "Jack of All Trades", desc: "Play every game mode", test: (s) => GAME_MODE_IDS.every((m) => s.modes?.[m]?.n > 0) },
+  { kanji: "第一歩", name: "The First Step", desc: "Complete a path step", test: (s, px) => px.steps >= 1 },
+  { kanji: "道中", name: "On the Road", desc: "25 path steps", test: (s, px) => px.steps >= 25 },
+  { kanji: "百歩", name: "A Hundred Strides", desc: "100 path steps", test: (s, px) => px.steps >= 100 },
+  { kanji: "星集め", name: "Star Gatherer", desc: "50 path stars", test: (s, px) => px.stars >= 50 },
+  { kanji: "天の川", name: "Milky Way", desc: "300 path stars", test: (s, px) => px.stars >= 300 },
+  { kanji: "完璧主義", name: "Perfectionist", desc: "10 three-star path steps", test: (s, px) => px.perfect >= 10 },
+  { kanji: "関所破り", name: "Barrier Breaker", desc: "Clear 5 checkpoints", test: (s, px) => px.bosses >= 5 },
+  { kanji: "宝探し", name: "Treasure Hunter", desc: "Open 5 treasure chests", test: (s, px) => px.gifts >= 5 },
+  { kanji: "満開", name: "Full Bloom", desc: "Finish the first path section", test: (s, px) => px.firstSection },
+  { kanji: "昇段", name: "Promotion", desc: "Reach level 10", test: (s, px) => px.level >= 10 },
 ];
 
 function badgeSection(st) {
-  const earned = BADGES.filter((b) => { try { return b.test(st); } catch { return false; } });
+  const px = { ...pathContext(), level: levelInfo(calcXP(st)).lvl };
+  const nodes = S.kanji.length ? pathNodes() : [];
+  const sec1 = nodes.filter((n) => n.unit < 4 && n.type !== "gift");
+  px.firstSection = sec1.length > 0 && sec1.every((n) => (S.settings.path || {})[n.id] > 0);
+  const earned = BADGES.filter((b) => { try { return b.test(st, px); } catch { return false; } });
   const got = new Set(earned);
   return `
     <div class="card chart-card">
@@ -1454,7 +1487,93 @@ function badgeSection(st) {
             <span class="b-desc">${b.desc}</span>
           </div>`).join("")}
       </div>
+    </div>
+    <div class="card chart-card">
+      <div class="chart-title">Charm collection</div>
+      <div class="chart-sub">Found in treasure chests along the path</div>
+      <div class="badge-grid">
+        ${CHARMS.map((c, i) => `
+          <div class="badge-tile ${i < px.gifts ? "earned" : ""}">
+            <span class="b-kanji" style="font-size:28px">${i < px.gifts ? c[0] : "❔"}</span>
+            <span class="b-name"><span class="jp">${c[1]}</span></span>
+            <span class="b-desc">${i < px.gifts ? c[2] : "Keep walking the path"}</span>
+          </div>`).join("")}
+      </div>
     </div>`;
+}
+
+// ================================================================ xp, ranks, charms
+
+const RANKS = [
+  [1, "見習い", "Apprentice"], [3, "書生", "Student"], [6, "旅人", "Wanderer"],
+  [10, "武者", "Warrior"], [15, "侍", "Samurai"], [21, "剣豪", "Sword Saint"],
+  [28, "達人", "Master"], [36, "賢者", "Sage"], [45, "仙人", "Immortal"],
+  [55, "漢字王", "Kanji King"],
+];
+
+const CHARMS = [
+  ["🐱", "招き猫", "Beckoning Cat"], ["⛩️", "鳥居", "Torii Gate"],
+  ["🌸", "桜", "Sakura"], ["🎎", "達磨", "Daruma"],
+  ["🕊️", "折鶴", "Paper Crane"], ["🎐", "風鈴", "Wind Chime"],
+  ["🏮", "提灯", "Lantern"], ["🎏", "鯉のぼり", "Koi Banner"],
+  ["🗻", "富士山", "Mount Fuji"], ["🍡", "団子", "Dango"],
+  ["🌊", "波", "The Great Wave"], ["🦊", "狐面", "Fox Mask"],
+];
+
+function pathContext() {
+  const p = S.settings?.path || {};
+  const entries = Object.entries(p);
+  const gifts = entries.filter(([k]) => k.endsWith("-gift"));
+  const steps = entries.filter(([k]) => !k.endsWith("-gift"));
+  return {
+    steps: steps.length,
+    stars: steps.reduce((a, [, v]) => a + v, 0),
+    perfect: steps.filter(([, v]) => v === 3).length,
+    bosses: entries.filter(([k, v]) => k.endsWith("-boss") && v > 0).length,
+    gifts: gifts.length,
+  };
+}
+
+function calcXP(st) {
+  const px = pathContext();
+  return st.total_correct * 2 + (st.total_reviews - st.total_correct)
+    + px.stars * 15 + px.gifts * 40;
+}
+
+function levelInfo(xp) {
+  let lvl = 1, need = 100, rest = xp;
+  while (rest >= need) { rest -= need; lvl++; need = 100 + (lvl - 1) * 60; }
+  return { lvl, into: rest, need };
+}
+
+function rankFor(lvl) {
+  let r = RANKS[0];
+  for (const cand of RANKS) if (lvl >= cand[0]) r = cand;
+  return r;
+}
+
+function levelCard(st) {
+  const xp = calcXP(st);
+  const { lvl, into, need } = levelInfo(xp);
+  const [, rk, rname] = rankFor(lvl);
+  return `
+    <div class="level-card">
+      <div class="rank-kanji">${rk}</div>
+      <div class="level-body">
+        <div><b>Level ${lvl} · ${rname}</b> <span style="color:var(--muted);font-size:13px">${xp.toLocaleString()} XP</span></div>
+        <div class="meter" style="margin:7px 0 4px"><i style="width:${Math.round((into / need) * 100)}%"></i></div>
+        <div class="t-sub">${into} / ${need} XP to level ${lvl + 1}</div>
+      </div>
+    </div>`;
+}
+
+function toast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.innerHTML = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("show"));
+  setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 350); }, 2300);
 }
 
 // ================================================================ learning path
@@ -1464,6 +1583,7 @@ const NODE_META = {
   quiz: { icon: "✏️", label: "Quiz" },
   game: { icon: "🎲", label: "Match" },
   boss: { icon: "🏯", label: "Checkpoint" },
+  gift: { icon: "🎁", label: "Treasure" },
 };
 
 function pathNodes() {
@@ -1481,6 +1601,8 @@ function pathNodes() {
     if (u % 5 === 4) {
       nodes.push({ id: `u${u}-boss`, type: "boss", unit: u,
                    chars: S.kanji.slice((u - 4) * 5, u * 5 + 5) });
+      nodes.push({ id: `u${u}-gift`, type: "gift", unit: u,
+                   giftIndex: Math.floor(u / 5) });
     }
   }
   return nodes;
@@ -1488,9 +1610,15 @@ function pathNodes() {
 
 async function pathMark(id, stars) {
   const cur = S.settings.path || {};
-  cur[id] = Math.max(cur[id] || 0, stars);
+  const prev = cur[id] || 0;
+  cur[id] = Math.max(prev, stars);
   S.settings.path = cur;
   await api("/api/settings", { path: cur }).catch(() => {});
+  if (cur[id] > prev) {
+    const isGift = id.endsWith("-gift");
+    const gained = isGift ? 40 : (cur[id] - prev) * 15;
+    toast(`+${gained} XP${isGift ? " · treasure found!" : ` · ${"★".repeat(cur[id])}`}`);
+  }
 }
 
 routes.path = async () => {
@@ -1501,9 +1629,15 @@ routes.path = async () => {
   if (firstOpen === -1) firstOpen = nodes.length;
   const doneCount = nodes.filter((n) => done[n.id]).length;
 
+  const px = pathContext();
   let html = `
     <h1>Path</h1>
     <p class="sub">A guided road through the most common kanji, five at a time: learn them, quiz them, and clear a checkpoint every few steps. ${doneCount} of ${nodes.length} steps done.</p>
+    <div class="row" style="margin-bottom:8px">
+      <span class="pill">★ ${px.stars} stars</span>
+      <span class="pill">🏯 ${px.bosses} checkpoints</span>
+      <span class="pill">🎁 ${px.gifts} charms</span>
+    </div>
     <div class="path-wrap">`;
   nodes.forEach((n, i) => {
     if (n.type === "learn" && n.unit % 4 === 0) {
@@ -1512,13 +1646,15 @@ routes.path = async () => {
     const stars = done[n.id] || 0;
     const state = stars ? "done" : i === firstOpen ? "current" : i < firstOpen ? "done" : "locked";
     const offset = Math.round(Math.sin(i * 0.85) * 95);
-    const label = n.type === "learn" ? n.chars.map((r) => r.k).join("") : NODE_META[n.type].label;
+    const label = n.type === "learn" ? n.chars.map((r) => r.k).join("")
+      : n.type === "gift" && stars ? `${CHARMS[n.giftIndex % CHARMS.length][0]} ${CHARMS[n.giftIndex % CHARMS.length][2]}`
+      : NODE_META[n.type].label;
     html += `
       <div class="path-row">
         <div class="path-step" style="transform:translateX(${offset}px)">
           <button class="path-node ${n.type} ${state}" data-i="${i}" ${state === "locked" ? "disabled" : ""}
                   title="${NODE_META[n.type].label}">${state === "locked" ? "🔒" : NODE_META[n.type].icon}</button>
-          <span class="path-stars">${stars ? "★".repeat(stars) : ""}</span>
+          <span class="path-stars">${n.type === "gift" ? "" : stars ? "★".repeat(stars) : ""}</span>
           <span class="path-label ${n.type === "learn" ? "jp" : ""}">${label}</span>
         </div>
       </div>`;
@@ -1531,6 +1667,7 @@ routes.path = async () => {
       if (n.type === "learn") pathLearn(n);
       else if (n.type === "quiz") pathQuiz(n, false);
       else if (n.type === "boss") pathQuiz(n, true);
+      else if (n.type === "gift") pathGift(n);
       else pathGame(n);
     };
   });
@@ -1653,6 +1790,35 @@ function pathQuiz(node, boss) {
   ask();
 }
 
+function pathGift(node) {
+  const [emoji, jp, en] = CHARMS[node.giftIndex % CHARMS.length];
+  const opened = (S.settings.path || {})[node.id] > 0;
+  setMain(`
+    <div class="quiz-wrap">
+      <div class="quiz-card" id="gift-box" style="padding:44px 30px">
+        ${opened ? "" : `
+        <div class="q-kind">Treasure</div>
+        <button class="gift-chest" id="gift-open" title="Open">🎁</button>
+        <p style="color:var(--ink-2);margin:16px 0 0">You've earned a reward. Open it!</p>`}
+      </div>
+      <div class="row" style="justify-content:center;margin-top:16px">
+        <button class="ghost-btn" id="gift-back">← Path</button>
+      </div>
+    </div>`);
+  $("#gift-back").onclick = () => routes.path();
+  const reveal = () => {
+    $("#gift-box").innerHTML = `
+      <div class="q-kind">A charm for your collection</div>
+      <div class="gift-charm">${emoji}</div>
+      <div class="q-prompt-text" style="padding:8px 0 2px"><span class="jp">${jp}</span> · ${en}</div>
+      <p style="color:var(--ink-2);margin:0 0 18px">+40 XP. See your collection on the Stats page.</p>
+      <button class="primary-btn" id="gift-cont">Continue</button>`;
+    $("#gift-cont").onclick = () => routes.path();
+  };
+  if (opened) reveal();
+  else $("#gift-open").onclick = async () => { await pathMark(node.id, 1); reveal(); };
+}
+
 function pathGame(node) {
   matchGame("meaning", {
     pool: node.chars,
@@ -1692,6 +1858,7 @@ routes.stats = async () => {
   setMain(`
     <h1>Stats</h1>
     <p class="sub">Everything is stored locally in <code>data/trainer.db</code>.</p>
+    ${levelCard(st)}
     <div class="tiles" style="margin-bottom:14px">
       <div class="tile"><div class="t-label">Total answers</div><div class="t-value">${st.total_reviews}</div></div>
       <div class="tile"><div class="t-label">Accuracy</div><div class="t-value">${acc}%</div></div>
