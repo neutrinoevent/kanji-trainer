@@ -35,12 +35,16 @@ port: `python server.py 8080`.
   (meaning to kanji), reading recognition, typed meaning with typo tolerance,
   and typed reading with a live romaji-to-kana converter (type `nichi`, see
   にち). Question type adapts to how well you know the card.
-- **Games.** Seven of them: Match Pairs and Reading Pairs (beat the clock),
+- **Games.** Eight of them: Match Pairs and Reading Pairs (beat the clock),
   Memory Flip (face-down concentration), Odd One Out (three kanji share an
   on-reading, find the impostor), Snap Judgment (45 seconds of true or false),
-  Lightning Round (60-second streak run), and Survival (three lives, questions
-  march down the frequency list and get harder). Games count in your stats but
-  don't affect the review schedule.
+  Lightning Round (60-second streak run), Survival (three lives, questions
+  march down the frequency list and get harder), and Kanji Horde (pixel-art
+  zombies advance on your gate; each correct answer cuts down the closest one).
+  Games count in your stats but don't affect the review schedule.
+- **Badges.** Twenty of them on the Stats page, from 初陣 (First Battle) to
+  常用制覇 (Jōyō Conquest), covering streaks, volume, coverage, night-owl and
+  early-riser reviews, and zombie hunting.
 - **Stats.** Daily activity, a 4-month heatmap, per-batch mastery, jōyō
   coverage, accuracy, day streak, and your most-missed kanji.
 - **Persistence.** Everything is stored in a local SQLite database

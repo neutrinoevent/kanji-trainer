@@ -295,6 +295,20 @@ def get_stats(settings):
         streak += 1
         d -= timedelta(days=1)
 
+    modes = {}
+    for r in conn.execute(
+        "SELECT mode, COUNT(*) n, SUM(correct) c FROM reviews GROUP BY mode"
+    ):
+        modes[r["mode"]] = {"n": r["n"], "c": r["c"] or 0}
+
+    hours = {}
+    for r in conn.execute(
+        "SELECT CAST(strftime('%H', datetime(ts,'localtime')) AS INTEGER) h,"
+        " COUNT(*) n FROM reviews GROUP BY h"
+    ):
+        if r["h"] is not None:
+            hours[str(r["h"])] = r["n"]
+
     hardest = [
         {"k": r["kanji"], "wrong": r["w"], "total": r["n"]}
         for r in conn.execute(
@@ -342,6 +356,8 @@ def get_stats(settings):
         "total_correct": totals["c"] or 0,
         "streak": streak,
         "hardest": hardest,
+        "modes": modes,
+        "hours": hours,
         "collections": collections,
         "learned": learned,
         "mature": mature,

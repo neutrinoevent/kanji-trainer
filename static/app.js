@@ -824,6 +824,7 @@ routes.games = async () => {
       <div class="game-card" id="g-snap"><h3>👍 Snap judgment</h3><p>45 seconds of true or false: does this meaning belong to this kanji?</p></div>
       <div class="game-card" id="g-lightning"><h3>⚡ Lightning round</h3><p>60 seconds. As many correct answers as you can. Streaks count.</p></div>
       <div class="game-card" id="g-survival"><h3>❤️ Survival</h3><p>Three lives, no timer. Questions march down the frequency list and get harder as you go.</p></div>
+      <div class="game-card" id="g-horde"><h3>🧟 Kanji horde</h3><p>Zombies shamble toward your gate. Each correct answer cuts down the closest one. Hold the line.</p></div>
     </div>`);
   $("#g-match").onclick = () => matchGame("meaning");
   $("#g-match-r").onclick = () => matchGame("reading");
@@ -832,6 +833,7 @@ routes.games = async () => {
   $("#g-snap").onclick = snapGame;
   $("#g-lightning").onclick = lightningGame;
   $("#g-survival").onclick = survivalGame;
+  $("#g-horde").onclick = hordeGame;
 };
 
 function primaryReading(r) {
@@ -1206,6 +1208,235 @@ function lightningGame() {
   ask();
 }
 
+// ---------------------------------------------------------------- kanji horde
+
+const ZOMBIE_FRAMES = [
+  [
+    "..GGGG..",
+    ".GGGGGG.",
+    ".GrGGrG.",
+    ".GGGGGG.",
+    "..GGGG..",
+    "AA.GGG..",
+    "AAGGGG..",
+    "..DDDD..",
+    "..DDDD..",
+    "..D..D..",
+    ".DD..DD.",
+  ],
+  [
+    "..GGGG..",
+    ".GGGGGG.",
+    ".GrGGrG.",
+    ".GGGGGG.",
+    "..GGGG..",
+    ".AAGGG..",
+    "AAGGGG..",
+    "..DDDD..",
+    "..DDDD..",
+    "..D.D...",
+    ".DD.DD..",
+  ],
+];
+const ZOMBIE_COLORS = { G: "#7bb661", r: "#e04444", A: "#5d9147", D: "#3f4a3a" };
+const ZPX = 3; // pixel size: sprites render 24x33
+
+function hordeGame() {
+  const pool = activePool();
+  const W = 640, H = 176, GROUND = 150, GATE_X = 52;
+  let hp = 10, kills = 0, over = false;
+  const t0 = Date.now();
+  let zombies = [], particles = [], gateFlash = 0;
+  let lastSpawn = performance.now() - 3200, lastTick = performance.now();
+
+  setMain(`
+    <h1>Kanji horde</h1>
+    <div class="lightning-hud">
+      <span style="color:var(--bad)">Gate <b id="hd-hp">${"♥".repeat(hp)}</b></span>
+      <span>Cut down <b id="hd-kills">0</b></span>
+    </div>
+    <div class="horde-stage"><canvas id="horde-canvas" width="${W}" height="${H}"></canvas></div>
+    <div class="quiz-wrap"><div class="quiz-card" id="horde-q"></div></div>
+    <div class="row" style="justify-content:center;margin-top:16px"><button class="ghost-btn" onclick="location.hash='#/games'">Quit</button></div>`);
+
+  const canvas = $("#horde-canvas");
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  const drawSprite = (x, y, frame) => {
+    const grid = ZOMBIE_FRAMES[frame];
+    for (let r = 0; r < grid.length; r++)
+      for (let c = 0; c < grid[r].length; c++) {
+        const col = ZOMBIE_COLORS[grid[r][c]];
+        if (col) { ctx.fillStyle = col; ctx.fillRect(x + c * ZPX, y + r * ZPX, ZPX, ZPX); }
+      }
+  };
+
+  const draw = () => {
+    ctx.fillStyle = css("--surface-2"); ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = css("--grid"); ctx.fillRect(0, GROUND, W, H - GROUND);       // ground
+    // fort wall with brick pattern
+    ctx.fillStyle = "#6e6e6e"; ctx.fillRect(8, 52, 38, GROUND - 52);
+    ctx.fillStyle = "#5b5b5b";
+    for (let y = 52; y < GROUND; y += 12)
+      for (let x = 8 + ((y / 12) % 2) * 9; x < 42; x += 18) ctx.fillRect(x, y, 8, 5);
+    ctx.fillStyle = "#4a4a4a"; ctx.fillRect(4, 44, 46, 8);                        // parapet
+    ctx.fillStyle = css("--accent"); ctx.fillRect(24, 14, 4, 30);                 // flag pole
+    ctx.fillRect(28, 14, 22, 16);
+    ctx.fillStyle = "#fff"; ctx.font = "12px sans-serif"; ctx.fillText("守", 32, 27); // "defend"
+    if (gateFlash > 0) {
+      ctx.fillStyle = `rgba(224,68,68,${gateFlash * 0.5})`;
+      ctx.fillRect(8, 44, 42, GROUND - 44);
+    }
+    for (const z of zombies) drawSprite(z.x, GROUND - 33, Math.floor(z.x / 12) % 2);
+    for (const p of particles) {
+      ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillRect(p.x, p.y, ZPX, ZPX);
+    }
+    ctx.globalAlpha = 1;
+  };
+
+  const poof = (x, y) => {
+    for (let i = 0; i < 16; i++) {
+      particles.push({
+        x: x + 8, y: y + 14,
+        vx: (i / 16 - 0.5) * 2.2, vy: -1.6 + (i % 4) * 0.5,
+        life: 1, color: i % 3 ? "#7bb661" : "#c9d6c0",
+      });
+    }
+  };
+
+  const hud = () => {
+    const el = $("#hd-hp"); if (!el) return;
+    el.textContent = hp > 0 ? "♥".repeat(hp) : "—";
+    $("#hd-kills").textContent = kills;
+  };
+
+  const loop = (now) => {
+    if (!document.getElementById("horde-canvas")) return;   // navigated away
+    const dt = Math.min(50, now - lastTick) / 1000;
+    lastTick = now;
+    if (!over) {
+      const spawnEvery = Math.max(3500, 5200 - kills * 18);
+      if (now - lastSpawn > spawnEvery) {
+        lastSpawn = now;
+        zombies.push({ x: W + 10, speed: 26 + Math.random() * 10 });
+      }
+      for (const z of zombies) z.x -= z.speed * dt;
+      const biters = zombies.filter((z) => z.x <= GATE_X);
+      if (biters.length) {
+        zombies = zombies.filter((z) => z.x > GATE_X);
+        hp -= biters.length; gateFlash = 1; hud();
+        if (hp <= 0) { hp = 0; over = true; hud(); endScreen(); }
+      }
+    }
+    gateFlash = Math.max(0, gateFlash - dt * 2);
+    for (const p of particles) { p.x += p.vx; p.y += p.vy; p.vy += 0.08; p.life -= dt * 1.6; }
+    particles = particles.filter((p) => p.life > 0);
+    draw();
+    requestAnimationFrame(loop);
+  };
+
+  const endScreen = () => {
+    const secs = Math.round((Date.now() - t0) / 1000);
+    $("#horde-q").innerHTML = `
+      <div class="q-kind">The gate has fallen</div>
+      <div class="q-prompt-text">${kills} zombie${kills === 1 ? "" : "s"} cut down · held for ${Math.floor(secs / 60)}m ${secs % 60}s</div>
+      <div class="row" style="justify-content:center">
+        <button class="primary-btn" id="hd-again">Again</button>
+        <button class="ghost-btn" onclick="location.hash='#/games'">Done</button>
+      </div>`;
+    $("#hd-again").onclick = hordeGame;
+  };
+
+  const ask = () => {
+    if (over || !document.getElementById("horde-q")) return;
+    const row = pick(pool);
+    const facet = primaryReading(row) && Math.random() < 0.4 ? "reading" : "meaning";
+    const answer = facet === "reading" ? primaryReading(row) : row.meanings[0];
+    const distractors = facet === "reading" ? pickReadingDistractors(row, 3) : pickMeaningDistractors(row, 3);
+    const choices = shuffle([answer, ...distractors]);
+    const jp = facet === "reading" ? "jp" : "";
+    $("#horde-q").innerHTML = `
+      <div class="horde-prompt"><span class="q-prompt-kanji" style="font-size:56px">${row.k}</span>
+        <span class="q-kind" style="margin:0">${facet === "reading" ? "reading" : "meaning"}</span></div>
+      <div class="choices">${choices.map((c, i) =>
+        `<button class="choice ${jp}" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}
+      </div>`;
+    const btns = [...document.querySelectorAll("#horde-q .choice")];
+    const onPick = (btn) => {
+      if (over) return;
+      const ok = btn.dataset.c === answer;
+      gameLog(row.k, facet, "horde", ok);
+      if (ok) {
+        if (zombies.length) {
+          const nearest = zombies.reduce((a, b) => (a.x < b.x ? a : b));
+          poof(nearest.x, GROUND - 33);
+          zombies = zombies.filter((z) => z !== nearest);
+          kills++; hud();
+        }
+        ask();
+      } else {
+        if (zombies.length) zombies.reduce((a, b) => (a.x < b.x ? a : b)).x -= 30; // lurch
+        btns.forEach((b) => { b.disabled = true; if (b.dataset.c === answer) b.classList.add("correct"); });
+        btn.classList.add("wrong");
+        setTimeout(ask, 600);
+      }
+    };
+    btns.forEach((b) => (b.onclick = () => onPick(b)));
+    keyOnce((e) => { const n = parseInt(e.key, 10); if (n >= 1 && n <= 4 && !btns[0].disabled) { onPick(btns[n - 1]); return true; } return false; });
+  };
+
+  requestAnimationFrame(loop);
+  ask();
+}
+
+// ================================================================ badges
+
+const GAME_MODE_IDS = ["match-meaning", "match-reading", "memory", "odd-one-out", "snap", "lightning", "survival", "horde"];
+
+const BADGES = [
+  { kanji: "初陣", name: "First Battle", desc: "Answer your first question", test: (s) => s.total_reviews >= 1 },
+  { kanji: "百人斬り", name: "Hundred Cuts", desc: "100 answers", test: (s) => s.total_reviews >= 100 },
+  { kanji: "千本桜", name: "Thousand Blossoms", desc: "1,000 answers", test: (s) => s.total_reviews >= 1000 },
+  { kanji: "万事達成", name: "Ten Thousand Deeds", desc: "10,000 answers", test: (s) => s.total_reviews >= 10000 },
+  { kanji: "三日坊主返上", name: "No Three-Day Monk", desc: "4-day streak", test: (s) => s.streak >= 4 },
+  { kanji: "七転八起", name: "Fall Seven, Rise Eight", desc: "7-day streak", test: (s) => s.streak >= 7 },
+  { kanji: "月光", name: "A Month of Moonlight", desc: "30-day streak", test: (s) => s.streak >= 30 },
+  { kanji: "不動明王", name: "The Immovable", desc: "100-day streak", test: (s) => s.streak >= 100 },
+  { kanji: "芽生え", name: "First Sprout", desc: "10 kanji learned", test: (s) => s.learned >= 10 },
+  { kanji: "竹林", name: "Bamboo Grove", desc: "100 kanji learned", test: (s) => s.learned >= 100 },
+  { kanji: "千字文", name: "Thousand Character Classic", desc: "1,000 kanji learned", test: (s) => s.learned >= 1000 },
+  { kanji: "山の中腹", name: "Halfway Up the Mountain", desc: "Half the jōyō set learned", test: (s) => s.joyo_learned >= s.joyo_total / 2 },
+  { kanji: "常用制覇", name: "Jōyō Conquest", desc: "Every jōyō kanji learned", test: (s) => s.joyo_total > 0 && s.joyo_learned >= s.joyo_total },
+  { kanji: "古老の木", name: "Elder Tree", desc: "100 mature kanji (3-week+ intervals)", test: (s) => s.mature >= 100 },
+  { kanji: "免許皆伝", name: "Menkyo Kaiden", desc: "90% accuracy over 500+ answers", test: (s) => s.total_reviews >= 500 && s.total_correct / s.total_reviews >= 0.9 },
+  { kanji: "早起き三文", name: "Worth Three Mon", desc: "Review before 7 a.m.", test: (s) => [4, 5, 6].some((h) => s.hours?.[h] > 0) },
+  { kanji: "夜桜", name: "Night Blossom", desc: "Review between midnight and 4 a.m.", test: (s) => [0, 1, 2, 3].some((h) => s.hours?.[h] > 0) },
+  { kanji: "門番", name: "Gatekeeper", desc: "Defend the gate in Kanji Horde", test: (s) => (s.modes?.horde?.n || 0) >= 1 },
+  { kanji: "鬼退治", name: "Oni Hunter", desc: "Cut down 100 zombies", test: (s) => (s.modes?.horde?.c || 0) >= 100 },
+  { kanji: "何でも屋", name: "Jack of All Trades", desc: "Play every game mode", test: (s) => GAME_MODE_IDS.every((m) => s.modes?.[m]?.n > 0) },
+];
+
+function badgeSection(st) {
+  const earned = BADGES.filter((b) => { try { return b.test(st); } catch { return false; } });
+  const got = new Set(earned);
+  return `
+    <div class="card chart-card">
+      <div class="chart-title">Badges</div>
+      <div class="chart-sub">${earned.length} of ${BADGES.length} earned</div>
+      <div class="badge-grid">
+        ${BADGES.map((b) => `
+          <div class="badge-tile ${got.has(b) ? "earned" : ""}">
+            <span class="b-kanji">${b.kanji}</span>
+            <span class="b-name">${b.name}</span>
+            <span class="b-desc">${b.desc}</span>
+          </div>`).join("")}
+      </div>
+    </div>`;
+}
+
 // ================================================================ stats
 
 routes.stats = async () => {
@@ -1239,6 +1470,8 @@ routes.stats = async () => {
       <div class="tile"><div class="t-label">Learned</div><div class="t-value">${st.learned}</div><div class="t-sub">${st.mature} mature (3wk+)</div></div>
       <div class="tile"><div class="t-label">Jōyō coverage</div><div class="t-value">${Math.round((st.joyo_learned / st.joyo_total) * 100)}%</div><div class="t-sub">${st.joyo_learned} / ${st.joyo_total}</div></div>
     </div>
+
+    ${badgeSection(st)}
 
     <div class="card chart-card">
       <div class="chart-title">Answers per day</div>
