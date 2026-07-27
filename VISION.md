@@ -326,6 +326,17 @@ sessions. No pip packages required. The auth is genuinely the easy part.
 
 ### The real cost of option D is not auth — it is multi-tenancy
 
+> **Revised 2026-07-27 (same day), see V-004.** This section is right about
+> *row-level* multi-tenancy and wrong to treat it as unavoidable. If the cloud
+> stores **one opaque document per user** rather than shared tables, no
+> `user_id` is needed on `srs`, `reviews` or `settings` at all — the local app
+> stays single-tenant by construction and the server holds a blob it never
+> interprets. That is what quir3 already does for vocabulary profiles
+> (`vocab_profiles`: one JSONB `state` per `user_id`, with `revision` and
+> `state_version`). The refactor described below is therefore **not** required,
+> which makes a synced option far cheaper than this entry claims.
+
+
 The current schema has **no user column anywhere**: `settings(key PK)`,
 `srs(kanji, facet PK)`, `reviews(id, …)`. It is single-tenant by construction.
 Going hosted means adding `user_id` to every table, to the primary keys, and to
@@ -355,6 +366,115 @@ data to live on Alexander's server.
 Nothing here is decided. C is the option most worth a serious look, because it
 is the only one that removes the awake-laptop dependency without taking on
 hosting, accounts, or anyone else's data.
+
+---
+
+## V-004 — Durability: the browser must never be the only copy (raised 2026-07-27)
+
+### The problem, stated plainly
+
+A user should be able to study on desktop and on their phone, over wifi or
+cellular, and **never lose their history to a storage wipe they didn't ask
+for**. Browser storage is not durable: Safari has historically cleared
+script-writable storage (IndexedDB included) for sites after periods of
+non-interaction, the exact rules change between OS versions, and a user who has
+been away for a fortnight is precisely the user with the most to lose.
+
+Mitigations exist — `navigator.storage.persist()`, installing to the home
+screen — and they help. **They are not a fix and must never be described as
+one.** They reduce the probability of a wipe; they do not bound the damage.
+
+> **The design rule this yields:** the copy in the browser is a *cache*. It may
+> be destroyed at any moment without warning, and destroying it must cost the
+> user nothing but a re-sync. Any design where the browser holds the only copy
+> is wrong regardless of how unlikely the wipe is.
+
+### What this does to Option C
+
+It does not kill it. A local-first PWA is still the right client. It adds a
+requirement: **a durable record somewhere the browser cannot evict.**
+
+### Prior art, already built and running: quir3 `vocab_profiles`
+
+`~/PycharmProjects/quir3-vocab-dev/supabase/migrations/20260722223000_vocab_cloud_profiles.sql`
+(2026-07-22) solves the identical problem for that project:
+
+- one row per user: `user_id PRIMARY KEY`, `state JSONB`, `state_version`, `revision BIGINT`
+- a size cap enforced in a CHECK constraint (`pg_column_size(state) <= 2.5 MB`)
+- RLS restricting select/insert/update/delete to `user_id = auth.uid()`
+- `anon` revoked entirely
+
+That is the shape to copy. It is proven, it is Alexander's own, and reusing it
+keeps two of his projects architecturally consistent.
+
+**The important consequence** (and the correction to V-003): because the cloud
+stores *one opaque document per user*, the local schema needs no `user_id`
+anywhere. `srs`, `reviews` and `settings` stay exactly as they are. The
+multi-tenancy refactor V-003 treated as the main cost of going hosted simply
+does not arise. Sync is document-level, not row-level.
+
+### Proposed architecture
+
+**Local-first PWA + revisioned cloud document.**
+
+- IndexedDB is the working copy — fast, offline, disposable.
+- The cloud holds the durable record: one JSON document, the same shape as the
+  existing `version: 1` export.
+- Writes go to IndexedDB immediately and are queued for the cloud; the queue
+  drains on reconnect. Offline use is unaffected.
+- On open: pull, compare `revision`, reconcile, carry on.
+
+**Two honest modes, chosen by the user:**
+
+| Mode | Account | Durability promise the UI may make |
+|---|---|---|
+| Local only | none | "Progress lives in this browser. The OS can clear it. Export regularly." |
+| Synced | invite-gated sign-in | "Progress is saved to your account. Losing this device costs nothing." |
+
+Local-only must remain available — it preserves the project's original promise
+(no accounts, nothing leaves your machine) for anyone who wants it. It just may
+never *claim* durability it doesn't have.
+
+**Auth** is the quir3 pattern, already analysed in V-003: `invite_codes` with
+atomic conditional claim, public signup disabled at the auth-service level,
+per-IP rate limits, password policy, POST-only credentials.
+
+### Conflict handling
+
+Two devices editing the same document need a rule. In rough order of preference:
+
+1. **`revision` guard (compare-and-swap).** Write only if the server's
+   `revision` still matches what was pulled; on mismatch, pull and merge.
+   This is what the quir3 schema's `revision BIGINT` is for.
+2. **Merge is mostly free**, because `reviews` is an append-only event log —
+   union by `(ts, kanji, facet)` and the histories combine cleanly.
+3. **The genuinely conflicting parts are small**: `srs` card state and the
+   `settings` blobs (`path`, `goals`). For `srs`, prefer the row with more
+   `reps` / later `due`. For settings, last-write-wins with a visible notice
+   is acceptable for a single-user-two-devices scenario.
+
+**Known wrinkle to fix regardless:** `settings.path` and `settings.goals` are
+currently read-modify-write of a whole object held in client memory
+(`pathMark()`, `saveGoals()`). With two devices live, last-write-wins can lose a
+path star. Single-client today, so latent — but sync makes it reachable.
+
+### Non-negotiables for whatever gets built
+
+- **Never present browser storage as durable.** Say where the data lives, in
+  plain words, on first run.
+- **Keep JSON export prominent and working.** It is the user-owned third copy
+  and the migration path off this app entirely. Format stays `version: 1`.
+- **A wipe must be a non-event**: reopen, sign in, pull. Nothing lost.
+- **If sync is encrypted client-side**, be explicit that a lost key means
+  unrecoverable data, and think hard about whether that is acceptable for a
+  non-technical user before choosing it over recoverable accounts.
+
+### Open question
+
+Encrypted sync-code (no accounts, server sees only ciphertext, lost code =
+lost data) versus invite-gated accounts (recoverable via email, server can read
+the blob, matches quir3)? The privacy story favours the first; a non-technical
+brother losing a 30-character code favours the second. Not yet decided.
 
 ---
 
