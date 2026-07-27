@@ -23,7 +23,10 @@ import zipfile
 BASE = os.path.dirname(os.path.abspath(__file__))
 REPO_ZIP = "https://codeload.github.com/neutrinoevent/kanji-trainer/zip/refs/heads/main"
 # user data: never copied over, never deleted
-PRESERVE = {"trainer.db", "trainer.db-wal", "trainer.db-shm", "trainer.db.bak"}
+# spoken.local.json is the user's own read-aloud reading overrides, so an update
+# must not clobber it (the shipped spoken.json is app data and does get replaced)
+PRESERVE = {"trainer.db", "trainer.db-wal", "trainer.db-shm", "trainer.db.bak",
+            "spoken.local.json"}
 
 
 def backup_db():

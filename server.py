@@ -31,6 +31,9 @@ DEFAULT_SETTINGS = {
     "session_size": 20,
     "tour_done": False,
     "path": {},          # learning-path progress: node id -> stars (1-3)
+    "sense_per_day": 4,  # extra meanings unlocked per day (own budget, see below)
+    "strict_primary": True,   # a 'meaning' card wants the *most common* sense
+    "goals": [],         # user-declared fluency goals; see /api/goals
 }
 
 # ---------------------------------------------------------------- data
@@ -38,6 +41,7 @@ DEFAULT_SETTINGS = {
 with open(DATA_FILE, encoding="utf-8") as f:
     KANJI_LIST = json.load(f)
 KANJI_INDEX = {row["k"]: i for i, row in enumerate(KANJI_LIST)}
+MEANING_COUNT = {row["k"]: len(row.get("meanings") or []) for row in KANJI_LIST}
 
 # Collections are alternative orderings/subsets of the same master list. A kanji
 # that appears in several collections still has exactly one SRS record per facet
@@ -169,6 +173,26 @@ LEARN_STEP_1 = timedelta(minutes=10)
 LEARN_STEP_2 = timedelta(days=1)
 GRADUATE_DAYS = 3.0
 
+# Facets. 'meaning' teaches the most common sense of a kanji and 'reading'
+# teaches how it is said aloud on its own; those two are created together when a
+# kanji enters the rotation. 'sense2'/'sense3' teach the second- and third-most
+# common meanings and are NOT created up front — they appear only once the more
+# frequent sense is demonstrably operative, so extra meanings always arrive as a
+# resurgence of a kanji you already know.
+CORE_FACETS = ("meaning", "reading")
+SENSE_FACETS = ("sense2", "sense3")
+NEXT_SENSE = {"meaning": "sense2", "sense2": "sense3"}
+SENSE_MEANING_INDEX = {"meaning": 0, "sense2": 1, "sense3": 2}
+
+# The bar for "operative fluency with the most frequent significance".
+SENSE_UNLOCK_DAYS = 7.0
+SENSE_UNLOCK_REPS = 4
+
+# Named fluency tiers, used by goals and the per-kanji rubric. 'solid' matches
+# the pre-existing "mature" statistic so the two never disagree.
+OPERATIVE_DAYS = 7.0
+SOLID_DAYS = 21.0
+
 
 def apply_answer(kanji, facet, correct):
     conn = db()
@@ -212,35 +236,112 @@ def apply_answer(kanji, facet, correct):
     conn.commit()
 
 
+def teachable(kanji, facet):
+    """Is there anything to put on this card?
+
+    A handful of rare variant codepoints in the dataset (jinmeiyo only, no
+    frequency rank) carry readings but no English gloss. Creating a meaning card
+    for them produces a question with no answer, so they simply don't get one.
+    """
+    i = KANJI_INDEX.get(kanji)
+    if i is None:
+        return False
+    row = KANJI_LIST[i]
+    if facet in SENSE_MEANING_INDEX:
+        return len(row.get("meanings") or []) > SENSE_MEANING_INDEX[facet]
+    return bool(row.get("on") or row.get("kun"))
+
+
+def open_facets(kanji):
+    """The core cards a kanji should start with - usually both."""
+    return tuple(f for f in CORE_FACETS if teachable(kanji, f))
+
+
+def unlock_senses():
+    """Create the next sense card for every kanji whose current sense is operative.
+
+    This is the sense ladder: you never meet a kanji's second meaning until its
+    first meaning has graduated to review with a week-plus interval and a few
+    reps behind it. The new card is created as 'new', so it then flows through
+    the ordinary queue on the sense budget below.
+    """
+    conn = db()
+    have = {(r["kanji"], r["facet"])
+            for r in conn.execute("SELECT kanji, facet FROM srs")}
+    added = 0
+    for r in conn.execute(
+        "SELECT kanji, facet, interval, reps FROM srs "
+        "WHERE state='review' AND facet IN ('meaning','sense2')"
+    ).fetchall():
+        nxt = NEXT_SENSE[r["facet"]]
+        if (r["kanji"], nxt) in have:
+            continue
+        if r["interval"] < SENSE_UNLOCK_DAYS or r["reps"] < SENSE_UNLOCK_REPS:
+            continue
+        # only if the kanji actually has a meaning at that rank
+        if MEANING_COUNT.get(r["kanji"], 0) <= SENSE_MEANING_INDEX[nxt]:
+            continue
+        conn.execute("INSERT OR IGNORE INTO srs(kanji, facet) VALUES(?,?)",
+                     (r["kanji"], nxt))
+        have.add((r["kanji"], nxt))
+        added += 1
+    if added:
+        conn.commit()
+    return added
+
+
 def build_queue(settings):
     conn = db()
+    unlock_senses()
     now = iso(now_utc())
+    today = today_local()
     due = [
         {"k": r["kanji"], "facet": r["facet"], "type": "review"}
         for r in conn.execute(
             "SELECT kanji, facet FROM srs WHERE state!='new' AND due<=? ORDER BY due",
             (now,),
         )
+        if teachable(r["kanji"], r["facet"])   # skips any empty card from an older db
     ]
+
+    # Two independent daily budgets: new kanji (widening) and newly unlocked
+    # senses (deepening). Sharing one budget would let either starve the other.
     introduced = conn.execute(
-        "SELECT COUNT(DISTINCT kanji) AS n FROM srs WHERE introduced_on=?",
-        (today_local(),),
+        "SELECT COUNT(DISTINCT kanji) AS n FROM srs "
+        "WHERE introduced_on=? AND facet IN ('meaning','reading')", (today,)
     ).fetchone()["n"]
-    budget = max(0, int(settings["new_per_day"]) - introduced)
-    new_items = []
-    if budget:
-        new_rows = conn.execute(
-            "SELECT kanji, facet FROM srs WHERE state='new'"
-        ).fetchall()
-        by_kanji = {}
-        for r in new_rows:
+    sense_introduced = conn.execute(
+        "SELECT COUNT(*) AS n FROM srs "
+        "WHERE introduced_on=? AND facet IN ('sense2','sense3')", (today,)
+    ).fetchone()["n"]
+
+    new_rows = [r for r in conn.execute("SELECT kanji, facet FROM srs WHERE state='new'")
+                if teachable(r["kanji"], r["facet"])]
+    by_kanji, sense_rows = {}, []
+    for r in new_rows:
+        if r["facet"] in CORE_FACETS:
             by_kanji.setdefault(r["kanji"], []).append(r["facet"])
+        else:
+            sense_rows.append(r)
+
+    new_items = []
+    budget = max(0, int(settings["new_per_day"]) - introduced)
+    if budget:
         ordered = sorted(by_kanji, key=lambda k: KANJI_INDEX.get(k, 1 << 30))
         for k in ordered[:budget]:
-            for facet in ("meaning", "reading"):
+            for facet in CORE_FACETS:
                 if facet in by_kanji[k]:
                     new_items.append({"k": k, "facet": facet, "type": "new"})
-    return {"due": due, "new": new_items, "introduced_today": introduced}
+
+    sense_budget = max(0, int(settings.get("sense_per_day", 4)) - sense_introduced)
+    if sense_budget:
+        sense_rows.sort(key=lambda r: (KANJI_INDEX.get(r["kanji"], 1 << 30), r["facet"]))
+        for r in sense_rows[:sense_budget]:
+            new_items.append({"k": r["kanji"], "facet": r["facet"], "type": "sense"})
+
+    return {"due": due, "new": new_items, "introduced_today": introduced,
+            "sense_today": sense_introduced,
+            "senses_waiting": len(sense_rows)}
 
 
 def start_batch(cid, index, settings):
@@ -250,13 +351,13 @@ def start_batch(cid, index, settings):
     added = already = 0
     for ch in chars:
         # one SRS record per kanji+facet, shared across all collections
-        cur = conn.execute(
-            "INSERT OR IGNORE INTO srs(kanji, facet) VALUES(?, 'meaning')", (ch,)
-        )
-        conn.execute(
-            "INSERT OR IGNORE INTO srs(kanji, facet) VALUES(?, 'reading')", (ch,)
-        )
-        if cur.rowcount:
+        new = False
+        for facet in open_facets(ch):
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO srs(kanji, facet) VALUES(?,?)", (ch, facet)
+            )
+            new = new or bool(cur.rowcount)
+        if new:
             added += 1
         else:
             already += 1
@@ -327,9 +428,13 @@ def get_stats(settings):
     ]
 
     srs_rows = conn.execute("SELECT * FROM srs").fetchall()
+    # Batch mastery is about the two core cards only. Folding freshly unlocked
+    # sense cards in would make a batch's mastery *drop* the moment the user got
+    # good enough to earn a second meaning, which is exactly backwards.
     per_kanji = {}
     for r in srs_rows:
-        per_kanji.setdefault(r["kanji"], []).append(strength(r))
+        if r["facet"] in CORE_FACETS:
+            per_kanji.setdefault(r["kanji"], []).append(strength(r))
 
     size = int(settings["batch_size"])
     collections = {}
@@ -359,7 +464,44 @@ def get_stats(settings):
         "SELECT COUNT(DISTINCT kanji) n FROM srs WHERE state='review' AND interval>=21"
     ).fetchone()["n"]
 
+    # The fluency ladder, counted. A kanji is "operative" on a rung when that
+    # card is in review with a week-plus interval; "solid" at three weeks.
+    def tier(r):
+        if r["state"] == "new":
+            return 0
+        if r["state"] != "review":
+            return 1
+        if r["interval"] >= SOLID_DAYS:
+            return 3
+        return 2 if r["interval"] >= OPERATIVE_DAYS else 1
+
+    tiers = {}
+    for r in srs_rows:
+        tiers.setdefault(r["kanji"], {})[r["facet"]] = tier(r)
+    rungs = {"seen": 0, "meaning": 0, "reading": 0, "both": 0, "solid": 0}
+    for t in tiers.values():
+        rungs["seen"] += 1
+        m, rd = t.get("meaning", 0), t.get("reading", 0)
+        if m >= 2:
+            rungs["meaning"] += 1
+        if rd >= 2:
+            rungs["reading"] += 1
+        if m >= 2 and rd >= 2:
+            rungs["both"] += 1
+        if m >= 3 and rd >= 3:
+            rungs["solid"] += 1
+
+    senses = {
+        "unlocked": sum(1 for r in srs_rows if r["facet"] in SENSE_FACETS),
+        "operative": sum(1 for r in srs_rows
+                         if r["facet"] in SENSE_FACETS and tier(r) >= 2),
+        "eligible": sum(1 for k, t in tiers.items()
+                        if t.get("meaning", 0) >= 2 and MEANING_COUNT.get(k, 0) > 1),
+    }
+
     return {
+        "rungs": rungs,
+        "senses": senses,
         "days": days,
         "total_reviews": totals["n"] or 0,
         "total_correct": totals["c"] or 0,
@@ -433,19 +575,23 @@ class Handler(BaseHTTPRequestHandler):
         path = url.path
         if path == "/" or path == "/index.html":
             return self.serve_file("static/index.html")
-        if path.startswith("/static/") or path == "/data/kanji.json":
+        if path.startswith("/static/") or path in (
+                "/data/kanji.json", "/data/spoken.json", "/data/spoken.local.json"):
             return self.serve_file(path)
 
         settings = get_settings()
         if path == "/api/state":
+            queue = build_queue(settings)   # may unlock senses, so run it first
             rows = [dict(r) for r in db().execute("SELECT * FROM srs")]
-            queue = build_queue(settings)
             return self.send_json({
                 "settings": settings,
                 "srs": rows,
                 "due_count": len(queue["due"]),
                 "new_count": len({i["k"] for i in queue["new"]}),
                 "introduced_today": queue["introduced_today"],
+                "sense_today": queue["sense_today"],
+                "senses_waiting": queue["senses_waiting"],
+                "tiers": {"operative": OPERATIVE_DAYS, "solid": SOLID_DAYS},
             })
         if path == "/api/queue":
             return self.send_json(build_queue(settings))
@@ -487,13 +633,13 @@ class Handler(BaseHTTPRequestHandler):
             conn = db()
             added = 0
             for ch in chars:
-                cur = conn.execute(
-                    "INSERT OR IGNORE INTO srs(kanji, facet) VALUES(?, 'meaning')", (ch,)
-                )
-                conn.execute(
-                    "INSERT OR IGNORE INTO srs(kanji, facet) VALUES(?, 'reading')", (ch,)
-                )
-                if cur.rowcount:
+                new = False
+                for facet in open_facets(ch):
+                    cur = conn.execute(
+                        "INSERT OR IGNORE INTO srs(kanji, facet) VALUES(?,?)", (ch, facet)
+                    )
+                    new = new or bool(cur.rowcount)
+                if new:
                     added += 1
             conn.commit()
             return self.send_json({"ok": True, "added": added,

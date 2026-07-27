@@ -436,3 +436,58 @@ h2 { font-size: 17px; margin: 26px 0 12px; }
   .choices { grid-template-columns: 1fr; }
   .match-grid { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* ============================================================ fluency ladder */
+
+/* the two things a learner is actually held to, on intro cards */
+.headline-pair { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 18px 0 4px; }
+.hp-cell { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+           padding: 12px 18px; min-width: 170px; }
+.hp-cell.wide { min-width: 260px; }
+.hp-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.hp-value { display: block; font-size: 21px; font-weight: 700; margin-top: 5px; }
+.rk { font-family: system-ui, sans-serif; font-size: 12px; color: var(--muted); font-weight: 400; }
+
+/* numbered senses; dimmed ones are not unlocked yet */
+.sense-ladder { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 12px 0 2px; }
+.kv .sense-ladder { justify-content: flex-start; margin: 0; }
+.sense-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+              background: var(--surface-2); border: 1px solid var(--border);
+              border-radius: 999px; padding: 4px 11px 4px 5px; color: var(--muted); }
+.sense-chip.on { color: var(--ink); border-color: var(--accent); }
+.sense-chip i { display: inline-flex; align-items: center; justify-content: center;
+                width: 17px; height: 17px; border-radius: 50%; font-style: normal;
+                font-size: 10px; background: var(--grid); color: var(--muted); }
+.sense-chip.on i { background: var(--accent); color: var(--accent-ink); }
+
+.sense-known { font-size: 13px; color: var(--ink-2); margin: 6px 0 14px; }
+.sense-why { color: var(--ink-2); margin: 12px 0 0; }
+.later-note { font-size: 12.5px; color: var(--muted); margin: 12px 0 0; line-height: 1.45; }
+
+/* "that's a real meaning, just not this card's" */
+.nudge { font-size: 13.5px; line-height: 1.5; color: var(--ink-2); background: var(--surface-2);
+         border-left: 3px solid var(--warn); border-radius: 0 8px 8px 0;
+         padding: 9px 13px; margin: 10px auto 4px; max-width: 460px; text-align: left; }
+
+/* per-card fluency tier */
+.tier { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px;
+        background: var(--grid); color: var(--muted); }
+.tier.t1 { background: rgba(250, 178, 25, 0.16); color: var(--warn); }
+.tier.t2 { background: rgba(57, 135, 229, 0.16); color: var(--accent); }
+.tier.t3 { background: rgba(12, 163, 12, 0.16); color: var(--good); }
+.tier-meta { font-size: 12px; color: var(--muted); margin-left: 6px; }
+
+/* ============================================================ goals */
+
+.goal-card .goal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.goal-title { font-size: 16px; font-weight: 700; }
+.goal-pct { font-size: 30px; font-weight: 800; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
+.pace { font-size: 13.5px; line-height: 1.55; margin-top: 12px; padding: 9px 13px;
+        border-radius: 8px; background: var(--surface-2); border-left: 3px solid var(--muted); }
+.pace.ok { border-left-color: var(--good); }
+.pace.late { border-left-color: var(--bad); }
+
+.ladder-card .ladder { margin: 6px 0 12px; padding-left: 20px; color: var(--ink-2); font-size: 14px; }
+.ladder-card .ladder li { margin-bottom: 5px; }
+.ghost-btn.danger { color: var(--bad); }
+.form-grid input[type="date"] { font: inherit; }

@@ -19,8 +19,46 @@ pip packages, no Node, no database server.
 Your browser opens at `http://127.0.0.1:7777` automatically. To use a different
 port: `python server.py 8080`.
 
+## What you're aiming at
+
+For any set you pick — say the first batch of Grade 1 — the app treats "I know
+this kanji" as four specific things, in the order you climb them:
+
+1. **You recognise it** on sight.
+2. **You know its most common meaning** — that one specifically. A meaning card
+   is graded against the primary sense, so passing it means something.
+3. **You can read it aloud** the way a Japanese reader would say it seeing the
+   bare character on a sign or a book cover. That is often *not* the first
+   reading in the dictionary: 日 alone is ひ, not にち.
+4. **Its further meanings arrive later.** The second and third senses unlock by
+   themselves once the first one is genuinely solid, then come back as review
+   rather than as new material.
+
+Set a **goal** — a set of kanji and a date that matters to you — and the app
+reports where you stand on each rung and whether your current pace reaches the
+date. It won't quietly reschedule reviews to make the number look better.
+
+Rungs 1–3 are a real, finishable destination. Rung 4 keeps going; so does
+everything else in the app.
+
 ## Features
 
+- **Goals.** Name a set (a whole track, or its first N batches), a target date,
+  and how firmly you want to know it — *operative* (recalled after a week away)
+  or *solid* (three weeks). You get a per-rung readout and an honest pace check:
+  "18 kanji left to start, 40 days out, that's 2/day — within your 10/day
+  setting."
+- **The sense ladder.** Each kanji starts with one meaning card, for its most
+  common sense. Once that card survives a week-long gap, a second-meaning card
+  unlocks on its own and turns up as a review of a kanji you already know.
+  Extra meanings have their own daily budget so depth never crowds out new
+  kanji, and typing a real-but-secondary meaning tells you exactly that instead
+  of just "wrong".
+- **Reading aloud, not reading recital.** Reading cards ask what you'd *say*
+  looking at the bare character. Those readings are curated in
+  `data/spoken.json` (editable — see below), labelled 音読み or 訓読み, and the
+  app still accepts the kanji's other real readings while nudging you to the
+  standalone one.
 - **Tracks and batches.** Study by frequency rank, JLPT level (N5 to N1),
   school grade (1 to 6 plus secondary), or jinmeiyō name kanji. Within every
   track, kanji are ordered most common first. Batch size is configurable.
@@ -39,7 +77,9 @@ port: `python server.py 8080`.
 - **Several question types, no drawing.** Multiple-choice meaning, reverse
   (meaning to kanji), reading recognition, typed meaning with typo tolerance,
   and typed reading with a live romaji-to-kana converter (type `nichi`, see
-  にち). Question type adapts to how well you know the card.
+  にち). Question type adapts to how well you know the card. Second-meaning
+  cards skip the reverse question, since several kanji can carry the same
+  secondary sense.
 - **Games.** Eight of them: Match Pairs and Reading Pairs (beat the clock),
   Memory Flip (face-down concentration), Odd One Out (three kanji share an
   on-reading, find the impostor), Snap Judgment (45 seconds of true or false),
@@ -70,13 +110,29 @@ port: `python server.py 8080`.
 ## Files
 
 ```
-server.py        the backend (Python standard library only)
-run.bat          Windows launcher
-run.sh           macOS/Linux launcher
-static/          the web UI (plain HTML/CSS/JS)
-data/kanji.json  the 3,122-kanji dataset
-data/trainer.db  your progress (created on first run; back this up)
+server.py               the backend (Python standard library only)
+run.bat                 Windows launcher
+run.sh                  macOS/Linux launcher
+static/                 the web UI (plain HTML/CSS/JS)
+data/kanji.json         the 3,122-kanji dataset
+data/spoken.json        curated read-aloud readings (editable, see below)
+data/spoken.local.json  your own reading overrides (optional; survives updates)
+data/trainer.db         your progress (created on first run; back this up)
+VISION.md               where the design ideas and decisions are written down
 ```
+
+### Correcting a read-aloud reading
+
+Which reading a bare kanji takes is sometimes a judgment call, and
+`data/spoken.json` is one person's answer. To change one, don't edit that file —
+updating the app replaces it. Make `data/spoken.local.json` instead:
+
+```json
+{ "overrides": { "後": "あと", "側": "がわ" } }
+```
+
+Same shape, wins over the shipped file, and `update.bat` leaves it alone along
+with your progress. Restart the app to pick up changes.
 
 ## Updating
 
