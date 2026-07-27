@@ -47,6 +47,13 @@ everything else in the app.
 
 ## Features
 
+- **Review what you're actually studying.** The Review page lets you review
+  everything at once, or narrow it to one set, one batch, or one goal. Sets
+  overlap — a kanji can be in Frequency, Grade 1 and N5 at the same time — so
+  studying "Grade 1, batch 1" no longer means being quizzed on everything else
+  you've ever started. Every set and batch also has a **Drill** button: practise
+  it whenever you like, as many times as you like, without disturbing the review
+  schedule.
 - **Goals.** Name a set (a whole track, or its first N batches), a target date,
   and how firmly you want to know it — *operative* (recalled after a week away)
   or *solid* (three weeks). You get a per-rung readout and an honest pace check:

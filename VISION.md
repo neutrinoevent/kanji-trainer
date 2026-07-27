@@ -483,6 +483,77 @@ brother losing a 30-character code favours the second. Not yet decided.
 
 ---
 
+## V-005 — Scoped review: study what you're actually studying (raised 2026-07-27)
+
+### The problem, found in testing
+
+A learner working through jōyō Grade 1 batch 1 hit **Review** and was quizzed on
+kanji from well outside that batch. Review was all-or-nothing: `/api/queue`
+returned every due card in the rotation, with no way to narrow it. Anything ever
+started — a few path steps, a batch opened out of curiosity — came back forever,
+diluting the set the learner had actually chosen.
+
+Reproduced before fixing: with Grade 1 batch 1 started plus eight unrelated
+kanji, the review queue served cards from outside the batch, and the proportion
+grows as more due cards accumulate.
+
+### Design decisions
+
+**D1 — A scope is a collection plus an optional inclusive batch range.**
+Not a list of characters: the URL stays short and the server remains the
+authority on what a batch contains. A *range* rather than a single index is what
+lets a goal ("the first three batches of Grade 1") be reviewed as one scope.
+`null` means everything, which stays the default and is one click away.
+
+**D2 — Daily budgets stay global.** `new_per_day` and `sense_per_day` limit the
+learner's pace, not the scope. A scoped session draws its new cards from within
+the scope but does not get a fresh allowance per set — otherwise picking a
+narrow scope would be a way to bypass the pacing that makes the SRS work.
+
+**D3 — Review and Drill are different things, and both are needed.**
+*Review* follows the schedule and moves cards along. *Drill* practises a set
+whenever you like, regardless of what's due, and never touches the schedule
+(logged with `srs: false`, exactly as games are). Drill is most useful precisely
+when nothing is due — which is when plain review has nothing to offer and a
+learner who wants to practise is told to go away.
+
+**D4 — Only show batches that are at least half in rotation.** Sets overlap by
+design: 日 is in Frequency, Grade 1 and N5 simultaneously. Listing every
+collection containing a started kanji produced 11 collections and 21 batch rows
+for someone who had started two batches. A batch appears only once it is ≥50% in
+rotation, which cleanly separates "I worked through this" from "overlap brushed
+against it", and the collection list is capped at five with an explicit
+"show more" for the rest.
+
+**D5 — The headline number is what you owe now.** An early version showed
+`due + not-yet-started`, promising a 116-card session when the daily budget
+would deliver far fewer. The big number is now the due count; not-yet-started
+cards are mentioned separately, and the button still works when only new cards
+are available.
+
+### What shipped
+
+- `scope_chars()` and a scope-aware `build_queue()`; `/api/queue` accepts
+  `collection`, `from`, `to`.
+- A **Review hub** at `#/review` — everything first, then by set, then by goal.
+  The old behaviour is `#/review/all`.
+- Scoped sessions at `#/review/c/<cid>[/<from>-<to>]`, drills at `#/drill/...`.
+- Entry points on the batch detail page, each collection on Batches, every goal
+  card, and the hub. The last scope used is remembered in `review_scope`.
+- Session header names the scope and marks drills "schedule untouched".
+
+Verified: scoped sessions leak zero out-of-scope kanji; a drill answer leaves
+`due` and `reps` byte-identical.
+
+### Also fixed in passing
+
+- `.form-grid` collapses to one column under 560px — the Goals form and Settings
+  page no longer overflow a phone screen (`KNOWN-ISSUES` #2).
+- A goal's "Study" button now opens the first batch not yet fully in rotation
+  rather than always batch 1 (`KNOWN-ISSUES` #5).
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.

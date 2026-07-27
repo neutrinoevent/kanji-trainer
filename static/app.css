@@ -491,3 +491,30 @@ h2 { font-size: 17px; margin: 26px 0 12px; }
 .ladder-card .ladder li { margin-bottom: 5px; }
 .ghost-btn.danger { color: var(--bad); }
 .form-grid input[type="date"] { font: inherit; }
+
+/* ============================================================ review scopes */
+
+.scope-card .scope-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.scope-title { font-size: 16px; font-weight: 700; }
+.scope-count { font-size: 28px; font-weight: 800; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
+.scope-count.zero { color: var(--muted); }
+.scope-primary { border-color: var(--accent); }
+
+.batch-review-list { margin: -6px 0 18px; padding: 4px 0 0 14px; border-left: 2px solid var(--border); }
+.batch-review-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; flex-wrap: wrap; }
+.brr-name { font-weight: 600; font-size: 13px; min-width: 74px; }
+.brr-meta { color: var(--muted); font-size: 12.5px; flex: 1; min-width: 140px; }
+.ghost-btn.sm { padding: 4px 10px; font-size: 12.5px; }
+
+.session-scope {
+  max-width: 660px; margin: 0 auto 10px; font-size: 13px; color: var(--ink-2);
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+}
+
+/* the Goals form and Settings both use .form-grid — it overflowed a phone */
+@media (max-width: 560px) {
+  .form-grid { grid-template-columns: 1fr; gap: 6px 0; }
+  .form-grid label { margin-top: 8px; }
+  .scope-card .scope-head { flex-direction: column; gap: 6px; }
+  .goal-card .goal-head { flex-direction: column; gap: 6px; }
+}

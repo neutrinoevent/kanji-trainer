@@ -663,6 +663,10 @@ routes.study = async (arg) => {
     return `
       <h2>${c.name} <span class="pill" style="vertical-align:middle">${chars.length} kanji${inRotation ? ` · ${inRotation} in rotation` : ""}</span></h2>
       <p class="sub" style="margin-bottom:12px">${esc(c.desc)}.</p>
+      ${inRotation ? `<div class="row" style="margin-bottom:12px">
+        <button class="ghost-btn sm" onclick="location.hash='${scopeHash({ cid: c.id, from: null, to: null })}'">⚡ Review ${esc(c.name)} only</button>
+        <button class="ghost-btn sm" onclick="location.hash='${scopeHash({ cid: c.id, from: null, to: null }, "drill")}'">🎯 Drill</button>
+      </div>` : ""}
       <div class="batch-grid">${cards}</div>`;
   }).join("");
 
@@ -693,6 +697,10 @@ async function batchDetail(cid, i) {
         : notStarted === 0 ? "Every kanji here is already in your review rotation." : ""}</p>
     <div class="row" style="margin-bottom:18px">
       ${notStarted ? `<button class="primary-btn" id="start-batch">Add ${notStarted} kanji to rotation</button>` : ""}
+      ${overlap ? `<button class="${notStarted ? "ghost-btn" : "primary-btn"}"
+          onclick="location.hash='${scopeHash({ cid, from: i, to: i })}'">⚡ Review this batch</button>
+        <button class="ghost-btn"
+          onclick="location.hash='${scopeHash({ cid, from: i, to: i }, "drill")}'">🎯 Drill this batch</button>` : ""}
       <button class="ghost-btn" id="back-btn">← ${col.group}</button>
     </div>
     <div class="kanji-grid">
@@ -754,21 +762,275 @@ function kanjiModal(k) {
 
 // ================================================================ review session
 
-routes.review = async () => {
+// ================================================================ review scopes
+//
+// Review used to be all-or-nothing: every card in rotation, whatever the
+// learner was actually working on. Someone studying Grade 1 batch 1 would get
+// quizzed on anything else they had ever started. A scope is a collection plus
+// an optional inclusive batch range; `null` means everything, which stays the
+// default and is still one click away.
+
+/** "#/review/c/g1/0" or "#/review/c/g1/0-2" -> {cid, from, to}; null = everything. */
+function parseScope(arg) {
+  const p = (arg || "").split("/").filter(Boolean);
+  if (p[0] !== "c" || !p[1] || !S.colById || !S.colById[p[1]]) return null;
+  const cid = p[1];
+  if (p[2] === undefined) return { cid, from: null, to: null };
+  const [a, b] = p[2].split("-").map((x) => parseInt(x, 10));
+  if (!Number.isFinite(a)) return { cid, from: null, to: null };
+  return { cid, from: a, to: Number.isFinite(b) ? b : a };
+}
+
+function scopeSuffix(sc) {
+  if (!sc) return "all";
+  if (sc.from === null) return `c/${sc.cid}`;
+  return `c/${sc.cid}/${sc.from === sc.to ? sc.from : `${sc.from}-${sc.to}`}`;
+}
+const scopeHash = (sc, base = "review") => `#/${base}/${scopeSuffix(sc)}`;
+
+function scopeQuery(sc) {
+  if (!sc) return "";
+  let q = `?collection=${encodeURIComponent(sc.cid)}`;
+  if (sc.from !== null) q += `&from=${sc.from}&to=${sc.to}`;
+  return q;
+}
+
+function scopeLabel(sc) {
+  if (!sc) return "Everything in rotation";
+  const name = S.colById?.[sc.cid]?.name || sc.cid;
+  if (sc.from === null) return name;
+  return sc.from === sc.to ? `${name} · Batch ${sc.from + 1}`
+                           : `${name} · Batches ${sc.from + 1}–${sc.to + 1}`;
+}
+
+/** The characters a scope covers, or null for everything. */
+function scopeChars(sc) {
+  if (!sc) return null;
+  const all = colChars(sc.cid);
+  if (sc.from === null) return all;
+  const size = S.settings.batch_size;
+  return all.slice(sc.from * size, (sc.to + 1) * size);
+}
+
+/** Counts for a scope, computed from the srs rows already in memory. */
+function scopeStats(sc) {
+  const chars = scopeChars(sc);
+  const set = chars ? new Set(chars) : null;
+  const now = Date.now();
+  let due = 0, fresh = 0, cards = 0;
+  const kanji = new Set();
+  for (const r of S.srs.values()) {
+    if (set && !set.has(r.kanji)) continue;
+    cards++;
+    kanji.add(r.kanji);
+    if (r.state === "new") fresh++;
+    else if (r.due && new Date(r.due).getTime() <= now) due++;
+  }
+  return { due, fresh, cards, kanji: kanji.size,
+           total: chars ? chars.length : kanji.size };
+}
+
+/**
+ * Scopes worth offering, most-studied first.
+ *
+ * Sets overlap heavily by design — 日 is in Frequency, Grade 1 and N5 at once —
+ * so "every collection containing a started kanji" would list nearly all of them
+ * for someone who started two batches. A batch is only listed if it is at least
+ * half in rotation, which separates "I worked through this" from "overlap
+ * brushed against it", and the collection list is capped unless asked to expand.
+ */
+function activeScopes(showAll) {
+  const size = S.settings.batch_size;
+  const threshold = Math.max(2, Math.ceil(size / 2));
+  const out = [];
+  for (const c of S.collections || []) {
+    const chars = colChars(c.id);
+    const started = chars.filter((k) => kanjiStarted(k)).length;
+    if (!started) continue;
+    const batches = [];
+    for (let b = 0; b * size < chars.length; b++) {
+      const chunk = chars.slice(b * size, (b + 1) * size);
+      const n = chunk.filter((k) => kanjiStarted(k)).length;
+      if (n >= Math.min(threshold, chunk.length)) {
+        batches.push({ index: b, started: n, size: chunk.length });
+      }
+    }
+    const deliberate = batches.length > 0 || started >= chars.length / 2;
+    out.push({ col: c, started, total: chars.length, batches, deliberate });
+  }
+  out.sort((a, b) => b.started - a.started);
+  if (showAll) return out;
+  const focused = out.filter((s) => s.deliberate);
+  return { list: focused.slice(0, 5), hidden: out.length - focused.slice(0, 5).length };
+}
+
+async function rememberScope(sc) {
+  const suffix = scopeSuffix(sc);
+  if (S.settings.review_scope === suffix) return;
+  S.settings.review_scope = suffix;
+  await api("/api/settings", { review_scope: suffix }).catch(() => {});
+}
+
+routes.review = async (arg) => {
   await loadState();
-  const queue = await api("/api/queue");
+  await loadCollections();
+  if (!arg) return reviewHub();
+  const sc = arg === "all" ? null : parseScope(arg);
+  if (arg !== "all" && !sc) return reviewHub();
+  await rememberScope(sc);
+  return reviewSession(sc);
+};
+
+// Drill: quiz everything in a scope regardless of what's due, and never touch
+// the schedule. This is the "let me just practise batch 1" button — useful
+// precisely when nothing is due, which is when plain review has nothing to say.
+routes.drill = async (arg) => {
+  await loadState();
+  await loadCollections();
+  const sc = arg === "all" ? null : parseScope(arg);
+  if (arg && arg !== "all" && !sc) return reviewHub();
+
+  const chars = scopeChars(sc);
+  const set = chars ? new Set(chars) : null;
+  const items = [];
+  for (const r of S.srs.values()) {
+    if (set && !set.has(r.kanji)) continue;
+    if (r.state === "new") continue;              // not taught yet
+    if (!S.byChar[r.kanji]) continue;
+    items.push({ k: r.kanji, facet: r.facet, type: "drill", srsDone: true });
+  }
+  if (!items.length) {
+    // "in rotation" and "already met" are different things -- say which is missing
+    const st = scopeStats(sc);
+    const untaught = st.kanji > 0;
+    setMain(`
+      <h1>Drill · ${esc(scopeLabel(sc))}</h1>
+      <div class="card" style="text-align:center;padding:40px 20px">
+        <h2 style="margin-top:0">Nothing to drill yet</h2>
+        <p class="sub">${untaught
+          ? `${st.kanji} kanji from this set are in your rotation, but you haven't met
+             any of them yet. Review introduces them first — then you can drill them
+             as often as you like.`
+          : "No kanji from this set are in your rotation. Add a batch first."}</p>
+        <div class="row" style="justify-content:center">
+          ${untaught
+            ? `<button class="primary-btn" onclick="location.hash='${scopeHash(sc)}'">Review this set</button>`
+            : `<button class="primary-btn" onclick="location.hash='#/study'">Batches</button>`}
+          <button class="ghost-btn" onclick="location.hash='#/review'">Review hub</button>
+        </div>
+      </div>`);
+    return;
+  }
+  const session = shuffle(items).slice(0, Math.max(10, S.settings.session_size));
+  runSession(session, { title: `Drill · ${scopeLabel(sc)}`, drill: true, scope: sc });
+};
+
+function scopeCard(sc, opts = {}) {
+  const st = scopeStats(sc);
+  // The headline number is what you owe *now*. Not-yet-started cards are gated
+  // by the global daily budget, so folding them in would promise a session far
+  // larger than the one you'd actually get.
+  const canStudy = st.due + st.fresh > 0;
+  const label = st.due ? `Review (${st.due})`
+    : st.fresh ? "Review · introduces new kanji"
+    : "Review — nothing due";
+  return `
+    <div class="card scope-card ${opts.primary ? "scope-primary" : ""}">
+      <div class="scope-head">
+        <div>
+          <div class="scope-title">${esc(scopeLabel(sc))}</div>
+          <div class="chart-sub">${st.kanji} kanji in rotation${
+            sc && st.total > st.kanji ? ` of ${st.total}` : ""}${
+            st.fresh ? ` · ${st.fresh} card${st.fresh === 1 ? "" : "s"} not yet started` : ""}</div>
+        </div>
+        <div class="scope-count ${st.due ? "" : "zero"}" data-tip="Cards due now">${st.due}</div>
+      </div>
+      <div class="row">
+        <button class="${opts.primary ? "primary-btn" : "ghost-btn"}"
+                onclick="location.hash='${scopeHash(sc)}'" ${canStudy ? "" : "disabled"}>${label}</button>
+        <button class="ghost-btn" onclick="location.hash='${scopeHash(sc, "drill")}'"
+                ${st.kanji ? "" : "disabled"}>Drill</button>
+      </div>
+    </div>`;
+}
+
+function reviewHub(showAll) {
+  const res = activeScopes(showAll);
+  const scopes = showAll ? res : res.list;
+  const hidden = showAll ? 0 : res.hidden;
+  const goals = (S.settings.goals || []).filter((g) => S.colById && S.colById[g.collection]);
+
+  const batchRow = (cid, b) => {
+    const sc = { cid, from: b.index, to: b.index };
+    const st = scopeStats(sc);
+    const ready = st.due + st.fresh;
+    return `
+      <div class="batch-review-row">
+        <span class="brr-name">Batch ${b.index + 1}</span>
+        <span class="brr-meta">${b.started}/${b.size} in rotation · ${st.due} due${
+          st.fresh ? ` · ${st.fresh} new` : ""}</span>
+        <button class="ghost-btn sm" onclick="location.hash='${scopeHash(sc)}'"
+                ${ready ? "" : "disabled"}>${st.due ? `Review (${st.due})` : ready ? "Review · new" : "Review"}</button>
+        <button class="ghost-btn sm" onclick="location.hash='${scopeHash(sc, "drill")}'">Drill</button>
+      </div>`;
+  };
+
+  setMain(`
+    <h1>Review</h1>
+    <p class="sub">Review everything at once, or narrow it to exactly what you're
+      working on. <b>Review</b> follows your schedule and moves cards along.
+      <b>Drill</b> practises a set whenever you like and leaves the schedule alone.</p>
+
+    ${scopeCard(null, { primary: true })}
+
+    ${scopes.length ? `
+      <h2>By set</h2>
+      <p class="sub" style="margin-top:-6px">Sets overlap — a kanji can belong to several at once.
+        Batches appear here once they're at least half in your rotation.</p>
+      ${scopes.map((s) => `
+        ${scopeCard({ cid: s.col.id, from: null, to: null })}
+        ${s.batches.length ? `
+          <div class="batch-review-list">
+            ${s.batches.slice(0, 12).map((b) => batchRow(s.col.id, b)).join("")}
+            ${s.batches.length > 12
+              ? `<div class="chart-sub" style="padding:6px 2px">…and ${s.batches.length - 12} more
+                   — open the set from <a href="#/study">Batches</a>.</div>` : ""}
+          </div>` : ""}
+      `).join("")}
+      ${hidden > 0 ? `<div class="row"><button class="ghost-btn" id="show-all-scopes">
+          Show ${hidden} more set${hidden === 1 ? "" : "s"} you've touched</button></div>` : ""}`
+    : `<div class="card">Nothing in rotation yet.
+        <a href="#/study">Start a batch</a> or <a href="#/path">follow the path</a>.</div>`}
+
+    ${goals.length ? `
+      <h2>By goal</h2>
+      ${goals.map((g) => scopeCard(goalScope(g))).join("")}` : ""}
+  `);
+  const more = $("#show-all-scopes");
+  if (more) more.onclick = () => reviewHub(true);
+}
+
+async function reviewSession(sc) {
+  const queue = await api("/api/queue" + scopeQuery(sc));
   const sessionSize = S.settings.session_size;
   const due = shuffle(queue.due).slice(0, sessionSize);
   const newItems = queue.new.slice(0, Math.max(0, sessionSize - due.length + 6));
 
   if (!due.length && !newItems.length) {
+    const inScope = scopeStats(sc);
     setMain(`
-      <h1>Review</h1>
+      <h1>Review${sc ? " · " + esc(scopeLabel(sc)) : ""}</h1>
       <div class="card" style="text-align:center;padding:50px 20px">
         <div style="font-family:var(--jp);font-size:64px">🎉</div>
         <h2 style="margin-top:10px">All caught up!</h2>
-        <p class="sub">Nothing is due right now. Start a new batch, or play a game.</p>
+        <p class="sub">${sc
+          ? `Nothing is due in <b>${esc(scopeLabel(sc))}</b> right now.
+             You can still drill it any time — that won't disturb the schedule.`
+          : "Nothing is due right now. Start a new batch, or play a game."}</p>
         <div class="row" style="justify-content:center">
+          ${sc && inScope.kanji
+            ? `<button class="primary-btn" onclick="location.hash='${scopeHash(sc, "drill")}'">Drill this set</button>` : ""}
+          <button class="ghost-btn" onclick="location.hash='#/review'">Review hub</button>
           <button class="ghost-btn" onclick="location.hash='#/study'">Batches</button>
           <button class="ghost-btn" onclick="location.hash='#/games'">Games</button>
         </div>
@@ -789,10 +1051,10 @@ routes.review = async () => {
     }
     items.push(it);
   }
-  runSession(items);
-};
+  runSession(items, { scope: sc, title: sc ? `Review · ${scopeLabel(sc)}` : null });
+}
 
-function runSession(items) {
+function runSession(items, opts = {}) {
   const sess = {
     items,
     pos: 0,
@@ -801,6 +1063,9 @@ function runSession(items) {
     correct: 0,
     missed: new Set(),
     startedAt: Date.now(),
+    scope: opts.scope || null,
+    title: opts.title || null,
+    drill: !!opts.drill,
   };
   nextCard(sess);
 }
@@ -809,6 +1074,8 @@ function sessionHeader(sess) {
   const total = sess.items.length;
   const pct = Math.round((sess.pos / total) * 100);
   return `
+    ${sess.title ? `<div class="session-scope">${sess.drill ? "🎯" : "⚡"}
+      ${esc(sess.title)}${sess.drill ? ` <span class="pill">schedule untouched</span>` : ""}</div>` : ""}
     <div class="quiz-top">
       <span>${sess.pos + 1} / ${total}</span>
       <div class="meter q-progress"><i style="width:${pct}%"></i></div>
@@ -1080,13 +1347,20 @@ function sessionDone(sess) {
         <div class="tile"><div class="t-label">First-try</div><div class="t-value">${acc}%</div></div>
         <div class="tile"><div class="t-label">Time</div><div class="t-value">${mins}m</div></div>
       </div>
+      ${sess.title ? `<p class="sub">${esc(sess.title)}</p>` : ""}
       ${sess.missed.size ? `<p class="sub">Tricky this time: <span style="font-family:var(--jp);font-size:22px">${[...sess.missed].join(" ")}</span></p>` : ""}
       <div class="row" style="justify-content:center">
         <button class="primary-btn" onclick="location.hash='#/';location.reload()">Dashboard</button>
-        <button class="ghost-btn" id="again-btn">Review more</button>
+        <button class="ghost-btn" id="again-btn">${sess.drill ? "Drill again" : "Review more"}</button>
+        <button class="ghost-btn" onclick="location.hash='#/review'">Review hub</button>
       </div>
     </div>`);
-  $("#again-btn").onclick = () => { routes.review(); };
+  // stay in the same scope rather than dropping back to everything
+  $("#again-btn").onclick = () => {
+    const suffix = scopeSuffix(sess.scope);
+    if (sess.drill) return routes.drill(suffix);
+    routes.review(suffix);
+  };
   loadState().catch(() => {});
 }
 
@@ -2112,6 +2386,13 @@ const BAR_DESC = {
   solid: "recalled after three weeks away — it's yours",
 };
 
+/** A goal expressed as a review scope, so it can be reviewed or drilled directly. */
+function goalScope(goal) {
+  return goal.batches
+    ? { cid: goal.collection, from: 0, to: goal.batches - 1 }
+    : { cid: goal.collection, from: null, to: null };
+}
+
 function goalChars(goal) {
   const col = S.colById[goal.collection];
   if (!col) return [];
@@ -2214,7 +2495,9 @@ function goalCard(goal, compact) {
           <button class="ghost-btn" onclick="location.hash='#/goals'">All goals</button>
         </div>`
         : `<div class="row" style="margin-top:12px">
-          <button class="ghost-btn" data-goal-study="${goal.id}">Study this set</button>
+          <button class="ghost-btn" onclick="location.hash='${scopeHash(goalScope(goal))}'">⚡ Review this set</button>
+          <button class="ghost-btn" onclick="location.hash='${scopeHash(goalScope(goal), "drill")}'">🎯 Drill</button>
+          <button class="ghost-btn" data-goal-study="${goal.id}">Study</button>
           <button class="ghost-btn danger" data-goal-del="${goal.id}">Remove</button>
         </div>`}
     </div>`;
@@ -2313,7 +2596,18 @@ routes.goals = async () => {
   document.querySelectorAll("[data-goal-study]").forEach((el) => {
     el.onclick = () => {
       const g = (S.settings.goals || []).find((x) => x.id === el.dataset.goalStudy);
-      if (g) location.hash = `#/study/${g.collection}/0`;
+      if (!g) return;
+      // open the first batch that isn't fully in rotation, not always batch 1
+      const size = S.settings.batch_size;
+      const chars = colChars(g.collection);
+      const last = g.batches ? g.batches - 1 : Math.ceil(chars.length / size) - 1;
+      let target = 0;
+      for (let b = 0; b <= last; b++) {
+        const chunk = chars.slice(b * size, (b + 1) * size);
+        target = b;
+        if (chunk.some((k) => !kanjiStarted(k))) break;
+      }
+      location.hash = `#/study/${g.collection}/${target}`;
     };
   });
   bindTips($("#main"));

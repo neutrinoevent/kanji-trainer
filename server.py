@@ -38,7 +38,9 @@ DEFAULT_SETTINGS = {
     # "big" wrong for 大 would be a false negative. The feedback names the primary
     # sense either way; turn this on to have only that sense count.
     "strict_primary": False,
-    "goals": [],         # user-declared fluency goals; see /api/goals
+    "goals": [],         # user-declared fluency goals
+    # last review scope the user picked ("all", or "c/<collection>[/<from>-<to>]")
+    "review_scope": "all",
 }
 
 # ---------------------------------------------------------------- data
@@ -304,11 +306,35 @@ def unlock_senses():
     return added
 
 
-def build_queue(settings):
+def scope_chars(settings, collection=None, b_from=None, b_to=None):
+    """Resolve a review scope to a set of kanji, or None for 'everything'.
+
+    A learner working through Grade 1 batch 1 should be able to review *that*,
+    not whatever else happens to be in rotation. Scope is a collection id plus
+    an optional inclusive batch range, rather than a list of characters, so the
+    URL stays short and the server stays the authority on what a batch contains.
+    A range (not just a single index) is what lets a goal — "the first three
+    batches of Grade 1" — be reviewed as one scope.
+    """
+    if not collection:
+        return None
+    chars = collection_chars(collection, settings)
+    if not chars:
+        return None
+    if b_from is not None:
+        size = int(settings["batch_size"])
+        lo = b_from * size
+        hi = ((b_to if b_to is not None else b_from) + 1) * size
+        chars = chars[lo:hi]
+    return set(chars)
+
+
+def build_queue(settings, scope=None):
     conn = db()
     unlock_senses()
     now = iso(now_utc())
     today = today_local()
+    in_scope = (lambda k: True) if scope is None else (lambda k: k in scope)
     due = [
         {"k": r["kanji"], "facet": r["facet"], "type": "review"}
         for r in conn.execute(
@@ -316,6 +342,7 @@ def build_queue(settings):
             (now,),
         )
         if teachable(r["kanji"], r["facet"])   # skips any empty card from an older db
+        and in_scope(r["kanji"])
     ]
 
     # Two independent daily budgets: new kanji (widening) and newly unlocked
@@ -329,8 +356,11 @@ def build_queue(settings):
         "WHERE introduced_on=? AND facet IN ('sense2','sense3')", (today,)
     ).fetchone()["n"]
 
+    # The daily budgets stay global on purpose — they are a pace limit on the
+    # learner, not on the scope. A scoped session simply draws its new cards
+    # from within the scope.
     new_rows = [r for r in conn.execute("SELECT kanji, facet FROM srs WHERE state='new'")
-                if teachable(r["kanji"], r["facet"])]
+                if teachable(r["kanji"], r["facet"]) and in_scope(r["kanji"])]
     by_kanji, sense_rows = {}, []
     for r in new_rows:
         if r["facet"] in CORE_FACETS:
@@ -608,7 +638,32 @@ class Handler(BaseHTTPRequestHandler):
                 "tiers": {"operative": OPERATIVE_DAYS, "solid": SOLID_DAYS},
             })
         if path == "/api/queue":
-            return self.send_json(build_queue(settings))
+            q = parse_qs(url.query)
+            cid = (q.get("collection") or [None])[0]
+            if cid is not None and cid not in COLLECTIONS:
+                return self.send_json({"error": "unknown collection"}, 400)
+
+            def opt_int(name):
+                raw = (q.get(name) or [None])[0]
+                if raw in (None, ""):
+                    return None
+                n = int(raw)          # ValueError handled by the caller
+                if n < 0:
+                    raise ValueError(name)
+                return n
+
+            try:
+                b_from, b_to = opt_int("from"), opt_int("to")
+            except ValueError:
+                return self.send_json({"error": "bad batch range"}, 400)
+            if b_to is not None and b_from is not None and b_to < b_from:
+                return self.send_json({"error": "bad batch range"}, 400)
+
+            scope = scope_chars(settings, cid, b_from, b_to)
+            out = build_queue(settings, scope)
+            out["scope"] = {"collection": cid, "from": b_from, "to": b_to,
+                            "size": len(scope) if scope is not None else None}
+            return self.send_json(out)
         if path == "/api/collections":
             return self.send_json([
                 {**c, "count": len(collection_chars(c["id"], settings)),

@@ -28,7 +28,7 @@ rank genuinely distinct senses. Same editable-JSON pattern, same
 on by default. It is off precisely because the gloss data can't support strict
 grading (see `VISION.md` D3 revised).
 
-## 2. Goals form and Settings overflow on a phone — usability
+## 2. ~~Goals form and Settings overflow on a phone~~ — FIXED 2026-07-27
 
 **What.** `.form-grid` in `static/app.css` is a fixed `grid-template-columns:
 200px 220px` (~438px with the gap). A 390px-wide phone with 16px page padding
@@ -38,10 +38,8 @@ has ~358px, so both the Goals form and the Settings page overflow horizontally.
 mobile properly — viewport meta is present, the sidebar collapses to a scrolling
 top bar at 760px, answer choices stack to one column.
 
-**Fix.** One breakpoint collapsing `.form-grid` to a single column under
-~560px. Small and self-contained.
-
-**Note.** Blocks any phone-facing work, so worth doing before that resumes.
+**Fixed.** `.form-grid` collapses to a single column under 560px. Verified at
+390px: no horizontal overflow on Goals, Settings or Review.
 
 ## 3. "New" count conflates new kanji with new senses — minor accuracy
 
@@ -72,15 +70,15 @@ loud. Worth noting that this is a *small* instance of the same hazard that
 would apply to duplicating the SM-2 scheduler, which is why the parked doc
 recommends against that.
 
-## 5. "Study this set" on a goal always opens batch 1 — minor
+## 5. ~~"Study this set" on a goal always opens batch 1~~ — FIXED 2026-07-27
 
 **What.** The button routes to `#/study/<collection>/0` regardless of how far
 the user has progressed or how many batches the goal covers.
 
 **Effect.** Mild annoyance for a goal spanning several batches.
 
-**Fix.** Route to the first batch that isn't fully in rotation, matching the
-logic `nextBatchHint()` already uses on the dashboard.
+**Fixed.** Now opens the first batch not yet fully in rotation, bounded by the
+goal's batch count.
 
 ## 6. Stale empty cards in pre-existing databases — cosmetic
 
