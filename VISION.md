@@ -172,6 +172,11 @@ Two things found while building it, fixed in the same pass:
 
 ---
 
+> **V-002, V-003 and V-004 are PARKED** (2026-07-27, owner's call: other things
+> get fixed first). They are consolidated into a single self-contained document,
+> `docs/PARKED-phone-access-and-sync.md` — read that when picking the thread
+> back up. The entries below stay for the reasoning trail.
+
 ## V-002 — Phone access over Tailscale (raised 2026-07-27) — PROPOSED, NOT BUILT
 
 ### The idea
