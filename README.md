@@ -55,8 +55,8 @@ everything else in the app.
   it whenever you like, as many times as you like, without disturbing the review
   schedule.
 - **Goals.** Name a set (a whole track, or its first N batches), a target date,
-  and how firmly you want to know it — *operative* (recalled after a week away)
-  or *solid* (three weeks). You get a per-rung readout and an honest pace check:
+  and how firmly you want to know it — *operative* or *solid*. You get a
+  per-rung readout and an honest pace check:
   "18 kanji left to start, 40 days out, that's 2/day — within your 10/day
   setting."
 - **The sense ladder.** Each kanji starts with one meaning card, for its most
@@ -86,6 +86,16 @@ everything else in the app.
 - **Spaced repetition.** Each kanji has a meaning card and a reading card,
   scheduled SM-2 style: 10 minutes, 1 day, 3 days, then growing intervals.
   Misses reset the card and lower its ease.
+- **Fluency is earned, not waited out.** A kanji counts as *operative* when
+  you've demonstrated it: produced from memory rather than picked out of four,
+  in more than one kind of question, on more than one day, at decent accuracy.
+  *Solid* means every question type, repeatedly, across several days. A long
+  gap since the last review proves nothing on its own, so it isn't used as the
+  measure — and the app tells you exactly what a card still needs.
+- **Misses ask for the answer back.** Get one wrong and you're shown what the
+  answer was and why, then asked to produce it before moving on. Answering with
+  a real but secondary meaning is accepted and says so — but it doesn't count
+  toward knowing the primary sense.
 - **Several question types, no drawing.** Multiple-choice meaning, reverse
   (meaning to kanji), reading recognition, typed meaning with typo tolerance,
   and typed reading with a live romaji-to-kana converter (type `nichi`, see

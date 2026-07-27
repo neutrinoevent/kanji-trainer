@@ -145,6 +145,15 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_reviews_kanji ON reviews(kanji);
         """
     )
+    # Migration: distinguish "correct" from "on target". Typing a real but
+    # secondary meaning is accepted, yet must not count as demonstrating the
+    # sense the card is for. Existing rows are backfilled from `correct` so no
+    # history is discarded.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(reviews)")}
+    if "on_target" not in cols:
+        conn.execute("ALTER TABLE reviews ADD COLUMN on_target INTEGER")
+        conn.execute("UPDATE reviews SET on_target = correct WHERE on_target IS NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_reviews_card ON reviews(kanji, facet)")
     conn.commit()
     conn.close()
 
@@ -200,14 +209,98 @@ SENSE_FACETS = ("sense2", "sense3")
 NEXT_SENSE = {"meaning": "sense2", "sense2": "sense3"}
 SENSE_MEANING_INDEX = {"meaning": 0, "sense2": 1, "sense3": 2}
 
-# The bar for "operative fluency with the most frequent significance".
-SENSE_UNLOCK_DAYS = 7.0
-SENSE_UNLOCK_REPS = 4
+# ---------------------------------------------------------------- fluency
+#
+# Fluency is measured by what the learner has DEMONSTRATED, not by how long a
+# card has survived. An interval of seven days only says the scheduler hasn't
+# asked recently; it says nothing about whether the learner can actually produce
+# the meaning, or only recognise it among four choices. So the bar is evidence:
+# the same card answered on target, across different kinds of question, on
+# different days.
+#
+# The question modes a facet can be asked in. "Solid" requires all of them,
+# which is why the sets are declared rather than counted.
+FACET_MODES = {
+    "meaning": {"mc-meaning", "mc-kanji", "type-meaning"},
+    "reading": {"mc-reading", "type-reading"},
+    "sense2": {"mc-meaning", "type-meaning"},
+    "sense3": {"mc-meaning", "type-meaning"},
+}
+# Producing an answer from memory is a stronger demonstration than picking it
+# out of four. Every tier above 'learning' requires at least one production.
+PRODUCTION_MODES = {"type-meaning", "type-reading"}
 
-# Named fluency tiers, used by goals and the per-kanji rubric. 'solid' matches
-# the pre-existing "mature" statistic so the two never disagree.
-OPERATIVE_DAYS = 7.0
-SOLID_DAYS = 21.0
+# Thresholds. 'days' is diversity of encounter, not a waiting period: it stops a
+# single intense session from certifying a kanji the learner will not recall
+# tomorrow. Everything else is pure evidence.
+TIER_OPERATIVE = {"modes": 2, "prod": 1, "hits": 4, "days": 2, "acc": 0.70}
+TIER_SOLID = {"prod": 2, "hits": 8, "days": 4, "acc": 0.80}   # + every mode
+
+
+def demonstration_map():
+    """Per-card evidence from the review log, keyed (kanji, facet).
+
+    Only scheduled answers count (srs=1) — games and drills are practice, not
+    assessment. Only on-target answers count as hits: see `on_target` in
+    /api/answer, which is how "you typed a real but secondary meaning" is kept
+    distinct from "you produced the meaning this card is for".
+    """
+    out = {}
+    for r in db().execute(
+        "SELECT kanji, facet, mode, day, SUM(on_target) hits, COUNT(*) n"
+        " FROM reviews WHERE srs=1 GROUP BY kanji, facet, mode, day"
+    ):
+        d = out.setdefault(
+            (r["kanji"], r["facet"]),
+            {"modes": set(), "prod": 0, "days": set(), "hits": 0, "n": 0},
+        )
+        hits = r["hits"] or 0
+        d["hits"] += hits
+        d["n"] += r["n"]
+        if hits:
+            d["modes"].add(r["mode"])
+            d["days"].add(r["day"])
+            if r["mode"] in PRODUCTION_MODES:
+                d["prod"] += hits
+    return out
+
+
+def demo_tier(facet, d):
+    """0 not started, 1 learning, 2 operative, 3 solid."""
+    if not d or not d["hits"]:
+        return 0
+    acc = d["hits"] / d["n"] if d["n"] else 0
+    t = TIER_OPERATIVE
+    if not (len(d["modes"]) >= t["modes"] and d["prod"] >= t["prod"]
+            and d["hits"] >= t["hits"] and len(d["days"]) >= t["days"]
+            and acc >= t["acc"]):
+        return 1
+    s = TIER_SOLID
+    every_mode = FACET_MODES.get(facet, set()) <= d["modes"]
+    if (every_mode and d["prod"] >= s["prod"] and d["hits"] >= s["hits"]
+            and len(d["days"]) >= s["days"] and acc >= s["acc"]):
+        return 3
+    return 2
+
+
+def tier_gaps(facet, d):
+    """What is still missing before this card counts as operative — shown to the
+    learner so the bar is legible rather than mysterious."""
+    d = d or {"modes": set(), "prod": 0, "days": set(), "hits": 0, "n": 0}
+    t = TIER_OPERATIVE
+    gaps = []
+    if len(d["modes"]) < t["modes"]:
+        gaps.append(f"answer it in {t['modes'] - len(d['modes'])} more question type(s)")
+    if d["prod"] < t["prod"]:
+        gaps.append("type it from memory once")
+    if d["hits"] < t["hits"]:
+        gaps.append(f"{t['hits'] - d['hits']} more correct answer(s)")
+    if len(d["days"]) < t["days"]:
+        gaps.append(f"come back on {t['days'] - len(d['days'])} more day(s)")
+    acc = d["hits"] / d["n"] if d["n"] else 0
+    if d["n"] and acc < t["acc"]:
+        gaps.append("raise accuracy above 70%")
+    return gaps
 
 
 def apply_answer(kanji, facet, correct):
@@ -284,15 +377,17 @@ def unlock_senses():
     conn = db()
     have = {(r["kanji"], r["facet"])
             for r in conn.execute("SELECT kanji, facet FROM srs")}
+    demo = demonstration_map()
     added = 0
     for r in conn.execute(
-        "SELECT kanji, facet, interval, reps FROM srs "
-        "WHERE state='review' AND facet IN ('meaning','sense2')"
+        "SELECT kanji, facet FROM srs WHERE facet IN ('meaning','sense2')"
     ).fetchall():
         nxt = NEXT_SENSE[r["facet"]]
         if (r["kanji"], nxt) in have:
             continue
-        if r["interval"] < SENSE_UNLOCK_DAYS or r["reps"] < SENSE_UNLOCK_REPS:
+        # the gate is demonstrated fluency with the more frequent sense, not the
+        # scheduler's opinion of how long it has been
+        if demo_tier(r["facet"], demo.get((r["kanji"], r["facet"]))) < 2:
             continue
         # only if the kanji actually has a meaning at that rank
         if MEANING_COUNT.get(r["kanji"], 0) <= SENSE_MEANING_INDEX[nxt]:
@@ -411,12 +506,10 @@ def start_batch(cid, index, settings):
 
 # ---------------------------------------------------------------- stats
 
-def strength(row):
-    if row["state"] == "new":
-        return 0.0
-    if row["state"] == "learning":
-        return 0.25
-    return min(1.0, 0.4 + (row["interval"] / 40.0))
+def strength(row, demo):
+    """Card strength for batch mastery, on the same evidence as the tiers, so a
+    batch showing 80% means 80% demonstrated rather than 80% recently scheduled."""
+    return [0.0, 0.35, 0.75, 1.0][demo_tier(row["facet"], demo)]
 
 
 def get_stats(settings):
@@ -472,13 +565,15 @@ def get_stats(settings):
     ]
 
     srs_rows = conn.execute("SELECT * FROM srs").fetchall()
+    demo = demonstration_map()
     # Batch mastery is about the two core cards only. Folding freshly unlocked
     # sense cards in would make a batch's mastery *drop* the moment the user got
     # good enough to earn a second meaning, which is exactly backwards.
     per_kanji = {}
     for r in srs_rows:
         if r["facet"] in CORE_FACETS:
-            per_kanji.setdefault(r["kanji"], []).append(strength(r))
+            per_kanji.setdefault(r["kanji"], []).append(
+                strength(r, demo.get((r["kanji"], r["facet"]))))
 
     size = int(settings["batch_size"])
     collections = {}
@@ -496,28 +591,12 @@ def get_stats(settings):
             })
         collections[cid] = batches
 
-    learned = conn.execute(
-        "SELECT COUNT(DISTINCT kanji) n FROM srs WHERE state='review'"
-    ).fetchone()["n"]
-
-    review_chars = {r["kanji"] for r in srs_rows if r["state"] == "review"}
-    joyo_learned = len(review_chars & JOYO_CHARS)
     in_rotation = len(per_kanji)
 
-    mature = conn.execute(
-        "SELECT COUNT(DISTINCT kanji) n FROM srs WHERE state='review' AND interval>=21"
-    ).fetchone()["n"]
 
-    # The fluency ladder, counted. A kanji is "operative" on a rung when that
-    # card is in review with a week-plus interval; "solid" at three weeks.
+    # The fluency ladder, counted from demonstrated evidence (see demo_tier).
     def tier(r):
-        if r["state"] == "new":
-            return 0
-        if r["state"] != "review":
-            return 1
-        if r["interval"] >= SOLID_DAYS:
-            return 3
-        return 2 if r["interval"] >= OPERATIVE_DAYS else 1
+        return demo_tier(r["facet"], demo.get((r["kanji"], r["facet"])))
 
     tiers = {}
     for r in srs_rows:
@@ -534,6 +613,16 @@ def get_stats(settings):
             rungs["both"] += 1
         if m >= 3 and rd >= 3:
             rungs["solid"] += 1
+
+    # "Learned" means demonstrated on both rungs — meaning AND reading, each
+    # produced from memory across several kinds of question on several days.
+    # Counting cards the scheduler happened to graduate told learners they were
+    # done when they were not.
+    learned = rungs["both"]
+    mature = rungs["solid"]
+    fluent_chars = {k for k, t in tiers.items()
+                    if t.get("meaning", 0) >= 2 and t.get("reading", 0) >= 2}
+    joyo_learned = len(fluent_chars & JOYO_CHARS)
 
     senses = {
         "unlocked": sum(1 for r in srs_rows if r["facet"] in SENSE_FACETS),
@@ -626,7 +715,12 @@ class Handler(BaseHTTPRequestHandler):
         settings = get_settings()
         if path == "/api/state":
             queue = build_queue(settings)   # may unlock senses, so run it first
-            rows = [dict(r) for r in db().execute("SELECT * FROM srs")]
+            demo = demonstration_map()
+            rows = []
+            for r in db().execute("SELECT * FROM srs"):
+                d = dict(r)
+                d["tier"] = demo_tier(r["facet"], demo.get((r["kanji"], r["facet"])))
+                rows.append(d)
             return self.send_json({
                 "settings": settings,
                 "srs": rows,
@@ -635,7 +729,7 @@ class Handler(BaseHTTPRequestHandler):
                 "introduced_today": queue["introduced_today"],
                 "sense_today": queue["sense_today"],
                 "senses_waiting": queue["senses_waiting"],
-                "tiers": {"operative": OPERATIVE_DAYS, "solid": SOLID_DAYS},
+                "tiers": {"operative": TIER_OPERATIVE, "solid": TIER_SOLID},
             })
         if path == "/api/queue":
             q = parse_qs(url.query)
@@ -670,6 +764,23 @@ class Handler(BaseHTTPRequestHandler):
                  "chars": collection_chars(c["id"], settings)}
                 for c in COLLECTIONS.values()
             ])
+        if path == "/api/card":
+            q = parse_qs(url.query)
+            k = (q.get("k") or [""])[0]
+            facet = (q.get("facet") or ["meaning"])[0]
+            d = demonstration_map().get((k, facet))
+            return self.send_json({
+                "k": k, "facet": facet,
+                "tier": demo_tier(facet, d),
+                "gaps": tier_gaps(facet, d),
+                "evidence": {
+                    "modes": sorted(d["modes"]) if d else [],
+                    "produced": d["prod"] if d else 0,
+                    "days": len(d["days"]) if d else 0,
+                    "hits": d["hits"] if d else 0,
+                    "attempts": d["n"] if d else 0,
+                },
+            })
         if path == "/api/stats":
             return self.send_json(get_stats(settings))
         if path == "/api/export":
@@ -726,12 +837,16 @@ class Handler(BaseHTTPRequestHandler):
             facet = body.get("facet", "meaning")
             correct = 1 if body.get("correct") else 0
             affects = bool(body.get("srs", True))
+            # on_target defaults to `correct`; the client sends 0 when an answer
+            # was accepted but was not the sense/reading the card teaches.
+            on_target = body.get("on_target")
+            on_target = correct if on_target is None else (1 if on_target else 0)
             db().execute(
-                "INSERT INTO reviews(kanji, facet, mode, correct, ms, srs, ts, day)"
-                " VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO reviews(kanji, facet, mode, correct, ms, srs, ts, day, on_target)"
+                " VALUES(?,?,?,?,?,?,?,?,?)",
                 (kanji, facet, body.get("mode", "?"), correct,
                  int(body.get("ms") or 0), 1 if affects else 0,
-                 iso(now_utc()), today_local()),
+                 iso(now_utc()), today_local(), on_target),
             )
             db().commit()
             if affects:
@@ -756,10 +871,11 @@ class Handler(BaseHTTPRequestHandler):
                 )
             for r in body.get("reviews") or []:
                 conn.execute(
-                    "INSERT INTO reviews(kanji,facet,mode,correct,ms,srs,ts,day)"
-                    " VALUES(?,?,?,?,?,?,?,?)",
+                    "INSERT INTO reviews(kanji,facet,mode,correct,ms,srs,ts,day,on_target)"
+                    " VALUES(?,?,?,?,?,?,?,?,?)",
                     (r["kanji"], r["facet"], r["mode"], r["correct"],
-                     r.get("ms"), r.get("srs", 1), r["ts"], r["day"]),
+                     r.get("ms"), r.get("srs", 1), r["ts"], r["day"],
+                     r.get("on_target", r["correct"])),
                 )
             conn.commit()
             return self.send_json({"ok": True})

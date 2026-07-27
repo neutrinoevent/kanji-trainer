@@ -73,13 +73,12 @@ const isMeaningFacet = (f) => MEANING_FACETS.includes(f);
 const OPERATIVE_LEAD_DAYS = 14;
 
 // Tier of a single card: 0 not started, 1 learning, 2 operative, 3 solid.
+// Computed server-side from the review log — see demo_tier() in server.py.
+// Deliberately NOT derived from the scheduling interval: a long interval only
+// means the scheduler hasn't asked recently, not that the learner can produce it.
 function tierOf(k, facet) {
   const s = srsOf(k, facet);
-  if (!s || s.state === "new") return 0;
-  if (s.state !== "review") return 1;
-  const t = S.tiers || { operative: 7, solid: 21 };
-  if (s.interval >= t.solid) return 3;
-  return s.interval >= t.operative ? 2 : 1;
+  return s && typeof s.tier === "number" ? s.tier : 0;
 }
 const TIER_LABEL = ["not started", "learning", "operative", "solid"];
 
@@ -504,7 +503,7 @@ routes.dashboard = async () => {
     <div class="tiles">
       <div class="tile"><div class="t-label">Queue now</div><div class="t-value">${totalQueue}</div><div class="t-sub">${S.dueCount} due · ${S.newCount} new</div></div>
       <div class="tile"><div class="t-label">Streak</div><div class="t-value">${stats.streak}</div><div class="t-sub">day${stats.streak === 1 ? "" : "s"} in a row</div></div>
-      <div class="tile"><div class="t-label">Learned</div><div class="t-value">${stats.learned}</div><div class="t-sub">${stats.mature} mature (3wk+)</div></div>
+      <div class="tile"><div class="t-label">Learned</div><div class="t-value">${stats.learned}</div><div class="t-sub">${stats.mature} solid · meaning + reading</div></div>
       <div class="tile"><div class="t-label">Jōyō coverage</div><div class="t-value">${Math.round((stats.joyo_learned / stats.joyo_total) * 100)}%</div><div class="t-sub">${stats.joyo_learned} of ${stats.joyo_total}</div></div>
       <div class="tile"><div class="t-label">Accuracy</div><div class="t-value">${acc}%</div><div class="t-sub">${stats.total_reviews} answers all-time</div></div>
     </div>
@@ -552,7 +551,8 @@ function goalSpotlight(stats) {
     <div class="card chart-card">
       <div class="chart-title">Fluency ladder</div>
       <div class="chart-sub">Of ${r.seen} kanji in rotation, counted at the operative bar
-        (recalled after a week away).</div>
+        at the operative bar: produced from memory, in more than one kind of
+        question, on more than one day.</div>
       <div class="hbars">
         ${rungBar("Meaning", r.meaning || 0, r.seen, "Most common meaning, operative")}
         ${rungBar("Read aloud", r.reading || 0, r.seen, "Standalone reading, operative")}
@@ -751,13 +751,29 @@ function kanjiModal(k) {
       <dt>Kun readings</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
       <dt>Sets</dt><dd>${setBadges(r).map((b) => `<span class="pill">${b}</span>`).join(" ") || "—"}</dd>
       <dt>Strokes</dt><dd>${r.strokes ?? "—"}</dd>
-      <dt>Meaning card</dt><dd>${srsLine("meaning")}</dd>
-      <dt>Reading card</dt><dd>${srsLine("reading")}</dd>
+      <dt>Meaning card</dt><dd>${srsLine("meaning")}<div id="gap-meaning"></div></dd>
+      <dt>Reading card</dt><dd>${srsLine("reading")}<div id="gap-reading"></div></dd>
       ${srsOf(k, "sense2") ? `<dt>Meaning 2 card</dt><dd>${srsLine("sense2")}</dd>` : ""}
       ${srsOf(k, "sense3") ? `<dt>Meaning 3 card</dt><dd>${srsLine("sense3")}</dd>` : ""}
     </dl>
     <a href="https://jisho.org/search/${encodeURIComponent(r.k)}%20%23kanji" target="_blank" rel="noopener" style="color:var(--accent)">Look up on jisho.org ↗</a>
   `);
+  // Spell out what is still missing before a card counts as operative, so the
+  // bar is legible instead of mysterious.
+  for (const facet of ["meaning", "reading"]) {
+    if (!srsOf(k, facet)) continue;
+    api(`/api/card?k=${encodeURIComponent(k)}&facet=${facet}`).then((d) => {
+      const el = $("#gap-" + facet);
+      if (!el) return;
+      const e = d.evidence;
+      const seen = `<div class="chart-sub">${e.hits}/${e.attempts} on target ·
+        ${e.modes.length} question type${e.modes.length === 1 ? "" : "s"} ·
+        typed ${e.produced}× · ${e.days} day${e.days === 1 ? "" : "s"}</div>`;
+      el.innerHTML = seen + (d.gaps.length
+        ? `<ul class="gap-list">${d.gaps.map((g) => `<li>${esc(g)}</li>`).join("")}</ul>`
+        : `<div class="chart-sub" style="color:var(--good)">Operative — nothing outstanding.</div>`);
+    }).catch(() => {});
+  }
 }
 
 // ================================================================ review session
@@ -1091,11 +1107,19 @@ function nextCard(sess) {
   quizCard(sess, item);
 }
 
-function advanceOn(sess, btnId) {
-  let advanced = false;
+function advanceOn(sess, btnId, delay = 300) {
+  let advanced = false, armed = false;
   const go = () => { if (advanced) return; advanced = true; sess.pos++; nextCard(sess); };
-  $(btnId).onclick = go;
-  keyOnce((e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); return true; } return false; });
+  setTimeout(() => { armed = true; }, delay);
+  $(btnId).onclick = () => { if (armed) go(); };
+  keyOnce((e) => {
+    if (e.repeat) return false;
+    if (e.key !== "Enter" && e.key !== " ") return false;
+    e.preventDefault();
+    if (!armed) return false;
+    go();
+    return true;
+  });
 }
 
 // First contact with a kanji: lead with the two things you'll be held to -
@@ -1256,7 +1280,12 @@ function quizCard(sess, item) {
       settle(g.ok, input.value, g);
     };
     $("#type-go").onclick = check;
-    keyOnce((e) => { if (e.key === "Enter") { check(); return e.target.disabled !== false; } return false; });
+    keyOnce((e) => {
+      if (e.key !== "Enter" || e.repeat) return false;
+      e.preventDefault();                       // don't let it activate anything else
+      check();
+      return e.target.disabled !== false;
+    });
   }
 }
 
@@ -1293,7 +1322,12 @@ function finishAnswer(sess, item, q, correct, chosen, ms, note) {
   sess.answered++;
   if (correct) sess.correct++; else sess.missed.add(item.k);
 
-  api("/api/answer", { k: item.k, facet: item.facet, mode: q.mode, correct, ms, srs: affectsSrs }).catch(() => {});
+  // "Correct" and "demonstrated the thing this card teaches" are different:
+  // a real but secondary meaning is accepted yet proves nothing about the
+  // primary sense, so it must not count toward operative fluency.
+  const onTargetHit = correct && !(note && note.other);
+  api("/api/answer", { k: item.k, facet: item.facet, mode: q.mode, correct, ms,
+                       srs: affectsSrs, on_target: onTargetHit }).catch(() => {});
 
   // wrong answers come back later in the session (practice only, srs already recorded)
   if (!correct) {
@@ -1320,39 +1354,203 @@ function finishAnswer(sess, item, q, correct, chosen, ms, note) {
     nudge = `<div class="nudge">“<span class="jp">${esc(note.other)}</span>” is a real reading of ${r.k}.
       Read on its own it's usually “<span class="jp">${sp.kana}</span>” (${READING_KIND[sp.kind]}).</div>`;
   }
+  const want = isMeaningFacet(q.facet) ? senseText(r, q.facet)
+             : q.facet === "reading" ? (spokenReading(r) || {}).kana
+             : q.answer;
+  const offTarget = correct && !!(note && note.other);
+  const banner = correct && !offTarget ? { cls: "ok", mark: "✓", text: "Correct" }
+    : offTarget ? { cls: "part", mark: "◐", text: "Accepted — but not what this card teaches" }
+    : { cls: "no", mark: "✗", text: "Not quite" };
+
   fb.innerHTML = `
-    <div class="verdict ${correct ? "ok" : "no"}">${correct ? "Correct!" : "Not quite"}</div>
+    <div class="verdict-banner ${banner.cls}">
+      <span class="v-mark">${banner.mark}</span>
+      <span class="v-text">${banner.text}</span>
+    </div>
+    ${chosen !== undefined && chosen !== null && String(chosen).trim() && !(correct && !offTarget)
+      ? `<div class="you-wrote">You answered <b>${esc(String(chosen))}</b></div>` : ""}
+    <div class="answer-was"><span class="jp">${r.k}</span>
+      <span class="aw-arrow">→</span> <b>${esc(want || "—")}</b></div>
     ${nudge}
-    <div class="detail"><span class="jp">${r.k}</span> — read aloud ${readingLine(r)}</div>
+    <div class="detail">read aloud ${readingLine(r)}</div>
     ${senseLadder(r, sensesTaught(r.k))}
-    <button class="primary-btn" id="next-btn" style="margin-top:12px">Continue ↵</button>`;
-  let advanced = false;
-  const go = () => { if (advanced) return; advanced = true; sess.pos++; nextCard(sess); };
-  $("#next-btn").onclick = go;
-  $("#next-btn").focus();
-  keyOnce((e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); return true; } return false; });
+    <div id="fix-slot"></div>
+    <button class="primary-btn" id="next-btn" style="margin-top:12px" disabled>Continue ↵</button>`;
+
+  // A clean hit moves on quickly; anything else asks for the right answer before
+  // it lets you past, so a miss can't be skimmed over at drilling speed.
+  if (correct && !offTarget) armContinue(sess, 400);
+  else correctionStep(sess, q, want, offTarget);
 }
 
-function sessionDone(sess) {
+/**
+ * Arm the Continue action after a dwell.
+ *
+ * The dwell is not cosmetic. Two separate faults made feedback vanish: the
+ * Continue button used to be focused *during* the Enter keydown that submitted
+ * the answer, so the browser's default action activated it and skipped straight
+ * past — every time, on typed cards. And key auto-repeat, or a second impatient
+ * press, did the same. So: never focus it here, ignore repeats, swallow presses
+ * that arrive before it is armed.
+ */
+function armContinue(sess, delay) {
+  const btn = $("#next-btn");
+  if (!btn) return;
+  let armed = false, advanced = false;
+  const go = () => {
+    if (!armed || advanced) return;
+    advanced = true;
+    sess.pos++;
+    nextCard(sess);
+  };
+  btn.onclick = go;
+  setTimeout(() => {
+    armed = true;
+    if ($("#next-btn") === btn) btn.disabled = false;
+  }, delay);
+  keyOnce((e) => {
+    if (e.repeat) return false;                       // auto-repeat, not a new press
+    if (e.key !== "Enter" && e.key !== " ") return false;
+    e.preventDefault();
+    if (!armed) return false;                         // too soon: swallow, keep waiting
+    go();
+    return true;
+  });
+}
+
+/**
+ * Make the learner produce the right answer before moving on.
+ *
+ * Retrieval, not recognition: after a miss you re-answer it rather than nodding
+ * at the correction. Typed questions ask for it back; multiple-choice ones ask
+ * you to pick the right option, which is highlighted.
+ */
+function correctionStep(sess, q, want, offTarget) {
+  const slot = $("#fix-slot");
+  if (!slot) return armContinue(sess, 1200);
+  const done = () => {
+    slot.innerHTML = `<div class="fix-done">✓ That's the one.</div>`;
+    armContinue(sess, 250);
+    const b = $("#next-btn");
+    if (b) b.textContent = "Continue ↵";
+  };
+
+  if (q.choices) {
+    const btns = [...document.querySelectorAll(".choice")];
+    const target = btns.find((b) => b.dataset.c === q.answer);
+    if (!target) return armContinue(sess, 1200);
+    slot.innerHTML = `<div class="fix-ask">Tap the right answer to carry on.</div>`;
+    btns.forEach((b) => { b.disabled = b !== target; });
+    target.classList.add("fix-target");
+    target.disabled = false;
+    target.onclick = () => {
+      btns.forEach((b) => { b.disabled = true; });
+      target.classList.remove("fix-target");
+      done();
+    };
+    return;
+  }
+
+  const isReading = q.mode === "type-reading";
+  slot.innerHTML = `
+    <div class="fix-ask">${offTarget
+      ? `Type <b>${esc(want)}</b> to lock in the meaning this card teaches.`
+      : `Type <b>${esc(want)}</b> to carry on.`}</div>
+    <input class="type-input fix-input ${isReading ? "jp" : ""}" id="fix-in"
+           autocomplete="off" spellcheck="false" placeholder="${isReading ? "reading…" : "meaning…"}">
+    ${isReading ? `<div class="kana-preview" id="fix-kana"></div>` : ""}`;
+  const input = $("#fix-in");
+  input.focus();
+  const check = () => {
+    const ok = isReading
+      ? toHiragana(input.value) === want
+      : glossMatches(normMeaning(input.value), want);
+    if (!ok) { input.classList.add("shake"); setTimeout(() => input.classList.remove("shake"), 400); return; }
+    input.disabled = true;
+    done();
+  };
+  input.addEventListener("input", () => {
+    if (isReading && $("#fix-kana")) $("#fix-kana").textContent = toHiragana(input.value);
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.repeat) { e.preventDefault(); check(); }
+  });
+}
+
+/**
+ * End of a session.
+ *
+ * This screen used to lead with "Excellent session!" and a Dashboard button —
+ * congratulating the learner and pointing them at the exit after a handful of
+ * cards. A session is a lap, not a finish line, so it now reports what is
+ * actually demonstrated, names what is still missing, and offers a *different*
+ * next thing rather than the door.
+ */
+async function sessionDone(sess) {
   const mins = Math.max(1, Math.round((Date.now() - sess.startedAt) / 60000));
   const firstTryVals = [...sess.firstTry.values()];
   const ftCorrect = firstTryVals.filter(Boolean).length;
   const acc = firstTryVals.length ? Math.round((ftCorrect / firstTryVals.length) * 100) : 100;
+
+  await loadState().catch(() => {});
+  const st = scopeStats(sess.scope);
+  const chars = scopeChars(sess.scope) || [...new Set([...S.srs.values()].map((r) => r.kanji))];
+  let operative = 0, solid = 0;
+  for (const k of chars) {
+    const m = tierOf(k, "meaning"), rd = tierOf(k, "reading");
+    if (m >= 2 && rd >= 2) operative++;
+    if (m >= 3 && rd >= 3) solid++;
+  }
+  const remaining = Math.max(0, st.kanji - operative);
+  const label = sess.scope ? scopeLabel(sess.scope) : "your rotation";
+
+  // Vary the suggested next step so the loop doesn't feel like one button.
+  const ideas = [
+    { h: scopeHash(sess.scope, "drill"), t: "🎯 Drill this set", why: "same kanji, no schedule pressure" },
+    { h: "#/games/odd", t: "🕵️ Odd one out", why: "readings, from a different angle" },
+    { h: "#/games/match", t: "🀄 Match pairs", why: "against the clock" },
+    { h: "#/games/horde", t: "🧟 Kanji horde", why: "if you'd rather it fought back" },
+    { h: "#/path", t: "🗺️ The path", why: "meet a few new ones" },
+  ];
+  const picks = shuffle(ideas).slice(0, 3);
+
   setMain(`
     <div class="quiz-wrap session-done">
-      <div class="doneK">${acc >= 80 ? "凄" : "続"}</div>
-      <h1>${acc >= 80 ? "Excellent session!" : "Session complete"}</h1>
+      <div class="doneK">${acc >= 80 ? "続" : "精"}</div>
+      <h1>${acc >= 80 ? "Good lap" : "Session complete"}</h1>
+      <p class="sub">${sess.drill ? "Drill — nothing scheduled changed." : esc(label)}</p>
       <div class="done-stats">
         <div class="tile"><div class="t-label">Cards</div><div class="t-value">${firstTryVals.length}</div></div>
         <div class="tile"><div class="t-label">First-try</div><div class="t-value">${acc}%</div></div>
         <div class="tile"><div class="t-label">Time</div><div class="t-value">${mins}m</div></div>
       </div>
-      ${sess.title ? `<p class="sub">${esc(sess.title)}</p>` : ""}
-      ${sess.missed.size ? `<p class="sub">Tricky this time: <span style="font-family:var(--jp);font-size:22px">${[...sess.missed].join(" ")}</span></p>` : ""}
-      <div class="row" style="justify-content:center">
-        <button class="primary-btn" onclick="location.hash='#/';location.reload()">Dashboard</button>
-        <button class="ghost-btn" id="again-btn">${sess.drill ? "Drill again" : "Review more"}</button>
+      ${sess.missed.size ? `<p class="sub">Tricky this time:
+        <span style="font-family:var(--jp);font-size:22px">${[...sess.missed].join(" ")}</span></p>` : ""}
+
+      <div class="card chart-card" style="text-align:left">
+        <div class="chart-title">Where ${esc(label)} actually stands</div>
+        <div class="chart-sub">Counted by what you've demonstrated — produced from memory,
+          in more than one kind of question, on more than one day.</div>
+        <div class="hbars" style="margin-top:10px">
+          ${rungBar("Operative", operative, st.kanji || 1, "Meaning and reading both demonstrated")}
+          ${rungBar("Solid", solid, st.kanji || 1, "Every question type, across several days")}
+        </div>
+        <p class="sub" style="margin:10px 0 0">${remaining
+          ? `<b>${remaining}</b> of ${st.kanji} still need more evidence. Seeing them again
+             on another day, and typing them rather than picking from four, is what moves them.`
+          : `Every kanji here is operative. Keep them alive — solid takes every question
+             type across several days.`}</p>
+      </div>
+
+      <p class="sub" style="margin-bottom:4px">Keep going, differently:</p>
+      <div class="next-up">
+        ${picks.map((p) => `<button class="ghost-btn" onclick="location.hash='${p.h}'">
+            ${p.t} <span style="color:var(--muted);font-size:12px">· ${p.why}</span></button>`).join("")}
+      </div>
+      <div class="row" style="justify-content:center;margin-top:14px">
+        <button class="primary-btn" id="again-btn">${sess.drill ? "Drill again" : "Review more"}</button>
         <button class="ghost-btn" onclick="location.hash='#/review'">Review hub</button>
+        <button class="ghost-btn" onclick="location.hash='#/';location.reload()">Dashboard</button>
       </div>
     </div>`);
   // stay in the same scope rather than dropping back to everything
@@ -1361,7 +1559,7 @@ function sessionDone(sess) {
     if (sess.drill) return routes.drill(suffix);
     routes.review(suffix);
   };
-  loadState().catch(() => {});
+  bindTips($("#main"));
 }
 
 // ================================================================ games
@@ -2382,8 +2580,8 @@ function pathGame(node) {
 
 const BAR_LABEL = { operative: "Operative", solid: "Solid" };
 const BAR_DESC = {
-  operative: "recalled after a week away — enough to read it in the wild",
-  solid: "recalled after three weeks away — it's yours",
+  operative: "produced from memory, in 2+ question types, on 2+ days",
+  solid: "every question type, produced repeatedly, across 4+ days",
 };
 
 /** A goal expressed as a review scope, so it can be reviewed or drilled directly. */
@@ -2549,8 +2747,8 @@ routes.goals = async () => {
         <label>Target date</label><input type="date" id="goal-date">
         <label>Bar to clear</label>
         <select id="goal-bar">
-          <option value="operative">Operative — recalled after a week</option>
-          <option value="solid">Solid — recalled after three weeks</option>
+          <option value="operative">Operative — you can produce it, more than one way</option>
+          <option value="solid">Solid — every question type, over several days</option>
         </select>
       </div>
       <div class="row" style="margin-top:14px"><button class="primary-btn" id="goal-add">Add goal</button></div>
@@ -2644,7 +2842,7 @@ routes.stats = async () => {
       <div class="tile"><div class="t-label">Accuracy</div><div class="t-value">${acc}%</div></div>
       <div class="tile"><div class="t-label">Streak</div><div class="t-value">${st.streak}</div><div class="t-sub">days</div></div>
       <div class="tile"><div class="t-label">In rotation</div><div class="t-value">${st.in_rotation}</div><div class="t-sub">kanji being studied</div></div>
-      <div class="tile"><div class="t-label">Learned</div><div class="t-value">${st.learned}</div><div class="t-sub">${st.mature} mature (3wk+)</div></div>
+      <div class="tile"><div class="t-label">Learned</div><div class="t-value">${st.learned}</div><div class="t-sub">${st.mature} solid · every question type</div></div>
       <div class="tile"><div class="t-label">Jōyō coverage</div><div class="t-value">${Math.round((st.joyo_learned / st.joyo_total) * 100)}%</div><div class="t-sub">${st.joyo_learned} / ${st.joyo_total}</div></div>
     </div>
 
@@ -2728,7 +2926,7 @@ routes.settings = async () => {
         </select>
       </div>
       <p class="settings-note">A kanji's second and third meanings unlock on their own once
-        you can recall the first after a week away, then arrive as review rather than as new
+        you can actually produce the first one on demand, then arrive as review rather than as new
         material. <b>Extra meanings per day</b> caps how fast they arrive; it has its own
         budget so deepening never eats into new kanji. Set it to 0 to pause it entirely.</p>
       <p class="settings-note">Either way, a typed meaning card <b>always tells you the most

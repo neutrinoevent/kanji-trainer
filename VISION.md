@@ -554,6 +554,98 @@ Verified: scoped sessions leak zero out-of-scope kanji; a drill answer leaves
 
 ---
 
+## V-006 — Fluency by demonstration; feedback you can't miss (raised 2026-07-27)
+
+### What the learner reported
+
+After extensive drilling of jōyō batch 1: the program "essentially told him
+*good enough!*" and pointed at the exit after relatively minimal review. Also,
+pressing Enter mid-review sometimes showed no visible feedback, and it wasn't
+clear whether an answer was right, wrong, or why.
+
+### The Enter bug — root cause
+
+Not intermittent, and not a double-registration. `finishAnswer()` called
+`$("#next-btn").focus()` **during** the Enter keydown that submitted the answer.
+Focus moved to the Continue button, and the browser's own default action for
+Enter then activated it — advancing past the feedback on the *same keypress*.
+It fired on **every** Enter on a typed card. It looked intermittent only because
+multiple-choice cards are answered with number keys and never hit that path, and
+typed questions appear mainly on cards the scheduler considers mature — exactly
+what someone drilling one batch heavily would be seeing.
+
+Proven by isolation: answering with a mouse click kept the feedback; neutralising
+`HTMLElement.prototype.focus` kept the feedback; restoring it lost the feedback
+again, with `nextCard()` called once per single Enter.
+
+Fixed three ways, because auto-repeat and impatient double-presses would have
+caused the same symptom independently: never focus the button during a key
+event, ignore `e.repeat`, and swallow presses that arrive before Continue is
+armed.
+
+### D1 — Fluency is demonstrated, not waited out
+
+The old bar was the scheduling interval: operative at 7 days, solid at 21. That
+measures how long the scheduler has left a card alone, not what the learner can
+do. Someone could clear a card by picking the right option out of four, three
+times, and be told they knew it.
+
+Fluency is now computed from the review log:
+
+| Tier | Requires |
+|---|---|
+| operative | ≥2 distinct question types on target, ≥1 **produced from memory**, ≥4 on-target answers, on ≥2 distinct days, ≥70% accuracy |
+| solid | **every** question type the facet has, ≥2 produced, ≥8 on target, ≥4 days, ≥80% accuracy |
+
+Producing an answer is weighted above recognising it, because typing it from
+memory and picking it out of four are not the same act. The distinct-days
+requirement is *diversity of encounter*, not a waiting period: it stops one
+intense session certifying a kanji that won't survive to tomorrow. Everything
+else is pure evidence — no clock.
+
+Verified: six correct multiple-choice answers in one day leaves a card at
+*learning*. Adding the reverse question: still learning. Adding a typed answer:
+still learning, because it's all one day. Spread the same evidence over two
+days: operative.
+
+**Knock-on effects, all deliberate.** "Learned" on the dashboard now means both
+rungs demonstrated rather than "the scheduler graduated it"; jōyō coverage and
+batch mastery use the same evidence; sense unlocking is gated on demonstrated
+fluency with the more frequent sense rather than on an interval. The numbers got
+smaller and honest.
+
+### D2 — Correct and on-target are different things
+
+Typing a real but secondary meaning is still accepted (marking "big" wrong for
+大 would be a false negative — see D3 revised in V-001). But it no longer counts
+toward demonstrating the primary sense. A new `on_target` column on `reviews`
+carries the distinction; existing rows are backfilled from `correct` so no
+history is lost. This is what the learner asked for: producing the second-most
+frequent meaning shouldn't certify fluency with the first.
+
+### D3 — A miss asks for the answer back
+
+Feedback is now a full-width coloured banner with ✓/◐/✗, what you answered, and
+what the card wanted. Getting it wrong — or answering off-target — no longer
+offers a Continue button. It asks you to produce the right answer: retype it for
+typed questions, tap the highlighted option for multiple choice. Retrieval, not
+nodding at a correction, and it makes drilling-at-speed impossible to do
+mindlessly. Clean hits still move on in 400ms, so flow is preserved.
+
+### D4 — A session is a lap, not a finish line
+
+The end screen led with "Excellent session!" and a Dashboard button. It now
+reports what the scope has actually demonstrated (operative / solid bars), names
+what's still missing in plain words — "seeing them again on another day, and
+typing them rather than picking from four, is what moves them" — and offers
+three *varied* next steps drawn at random from drills, games and the path.
+Dashboard is still there, last.
+
+The kanji detail modal shows the same thing per card: evidence so far, and the
+specific gaps remaining. The bar should be legible, not mysterious.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.
