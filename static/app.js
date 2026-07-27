@@ -29,6 +29,8 @@ async function loadState() {
   S.srs = new Map(st.srs.map((r) => [r.kanji + "|" + r.facet, r]));
   S.dueCount = st.due_count;
   S.newCount = st.new_count;
+  S.tiers = st.tiers || S.tiers;
+  S.sensesWaiting = st.senses_waiting || 0;
   const badge = $("#due-badge");
   const total = st.due_count + st.new_count;
   badge.textContent = total;
@@ -51,6 +53,68 @@ function colSlice(cid, i) {
   const size = S.settings.batch_size;
   return colChars(cid).slice(i * size, (i + 1) * size).map((c) => S.byChar[c]);
 }
+// ================================================================ the fluency ladder
+//
+// Four rungs, in the order a learner climbs them:
+//   1. see the kanji and recognise it
+//   2. know its MOST COMMON meaning
+//   3. say it aloud the way a Japanese reader would, seeing it on its own
+//   4. pick up its further meanings later, once rung 2 is genuinely solid
+// Rungs 2-4 are SRS facets: meaning, then sense2/sense3 unlocked by the server.
+
+const SENSE_FACETS = ["sense2", "sense3"];
+const MEANING_FACETS = ["meaning", ...SENSE_FACETS];
+const SENSE_INDEX = { meaning: 0, sense2: 1, sense3: 2 };
+const SENSE_ORDINAL = ["most common", "second", "third"];
+const isSenseFacet = (f) => SENSE_FACETS.includes(f);
+const isMeaningFacet = (f) => MEANING_FACETS.includes(f);
+// A kanji needs roughly two weeks of reviews to ripen from "introduced" to
+// "operative". Goal pacing has to leave room for that, or the deadline lies.
+const OPERATIVE_LEAD_DAYS = 14;
+
+// Tier of a single card: 0 not started, 1 learning, 2 operative, 3 solid.
+function tierOf(k, facet) {
+  const s = srsOf(k, facet);
+  if (!s || s.state === "new") return 0;
+  if (s.state !== "review") return 1;
+  const t = S.tiers || { operative: 7, solid: 21 };
+  if (s.interval >= t.solid) return 3;
+  return s.interval >= t.operative ? 2 : 1;
+}
+const TIER_LABEL = ["not started", "learning", "operative", "solid"];
+
+/** The meaning this card is actually asking for. */
+function senseText(row, facet) {
+  return row.meanings[SENSE_INDEX[facet] ?? 0];
+}
+/** Senses the learner has already been taught for this kanji, in order. */
+function knownSenses(row, upto) {
+  return row.meanings.slice(0, upto).filter(Boolean);
+}
+
+// ---------------------------------------------------------------- reading aloud
+//
+// Not "the first reading in the dictionary" - what someone actually says looking
+// at the bare character on a sign. data/spoken.json carries the curated answers
+// for the frequent range; the heuristic below covers the tail. See VISION.md D4.
+
+function spokenReading(row) {
+  if (!row) return null;
+  const strip = (x) => x.replace(/-/g, "");
+  const full = (x) => strip(x).replace(/\./g, "");
+  const isOn = (kana) => row.on.some((x) => full(x) === kana);
+  const override = S.spoken && S.spoken[row.k];
+  if (override) return { kana: override, kind: isOn(override) ? "on" : "kun" };
+  // a kun reading with no okurigana dot is a standalone word (山 やま, 国 くに)
+  const kun = row.kun.find((x) => !x.includes(".") && !x.includes("-"));
+  if (kun) return { kana: kun, kind: "kun" };
+  const on = row.on.find((x) => !x.includes(".") && !x.includes("-"));
+  if (on) return { kana: on, kind: "on" };
+  const any = [...row.kun, ...row.on].map((x) => full(x)).find(Boolean);
+  return any ? { kana: any, kind: isOn(any) ? "on" : "kun" } : null;
+}
+const READING_KIND = { on: "音読み", kun: "訓読み" };
+
 function setBadges(r) {
   const out = [];
   if (r.grade >= 1 && r.grade <= 6) out.push(`Jōyō · Grade ${r.grade}`);
@@ -142,17 +206,47 @@ function levenshtein(a, b) {
   return dp[a.length][b.length];
 }
 
-function meaningMatches(input, row) {
-  const norm = (x) => x.toLowerCase().replace(/\(.*?\)/g, "").replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
-  const inp = norm(input);
-  if (!inp) return false;
-  for (const m of row.meanings) {
-    const t = norm(m);
-    if (inp === t) return true;
-    const tol = t.length >= 8 ? 2 : t.length >= 5 ? 1 : 0;
-    if (tol && levenshtein(inp, t) <= tol) return true;
-  }
-  return false;
+const normMeaning = (x) => String(x).toLowerCase()
+  .replace(/\(.*?\)/g, "").replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
+
+function glossMatches(inp, gloss) {
+  const t = normMeaning(gloss || "");
+  if (!t || !inp) return false;
+  if (inp === t) return true;
+  const tol = t.length >= 8 ? 2 : t.length >= 5 ? 1 : 0;   // typo tolerance
+  return tol > 0 && levenshtein(inp, t) <= tol;
+}
+
+/**
+ * Grade a typed meaning against the ONE sense this card teaches.
+ *
+ * A meaning card is for the kanji's most common sense; sense2/sense3 cards are
+ * for the next ones down. Typing a real-but-different meaning of the same kanji
+ * is its own outcome ({ok:false, other}) so the feedback can say what happened
+ * instead of just "wrong" - that distinction is what teaches the ranking.
+ * Setting strict_primary=false makes any real meaning count.
+ */
+function gradeMeaning(input, row, facet) {
+  const idx = SENSE_INDEX[facet] ?? 0;
+  const inp = normMeaning(input);
+  if (!inp) return { ok: false };
+  if (glossMatches(inp, row.meanings[idx])) return { ok: true };
+  const j = row.meanings.findIndex((m, i) => i !== idx && glossMatches(inp, m));
+  if (j >= 0) return { ok: !S.settings.strict_primary, other: row.meanings[j] };
+  return { ok: false };
+}
+
+/**
+ * Grade a typed reading. The target is the read-aloud reading, but other real
+ * readings of the kanji still count - which one a bare character takes is
+ * genuinely ambiguous for some kanji, so this nudges rather than punishes.
+ */
+function gradeReading(input, row) {
+  const kana = toHiragana(input);
+  const sp = spokenReading(row);
+  if (sp && kana === sp.kana) return { ok: true };
+  if (readingForms(row).has(kana)) return { ok: true, other: kana };
+  return { ok: false };
 }
 
 // ================================================================ question builder
@@ -191,9 +285,13 @@ function pickKanjiDistractors(target, n) {
 
 function pickReadingDistractors(target, n) {
   const forms = readingForms(target);
+  const sp = spokenReading(target);
+  // a curated reading isn't always in the dictionary forms (四 -> よん), so
+  // exclude it explicitly or it could turn up as its own distractor
+  if (sp) forms.add(sp.kana);
   const out = new Set();
   for (const r of shuffle(distractorPool(target))) {
-    const cand = (r.on[0] || r.kun[0] || "").replace(/[-.]/g, "");
+    const cand = primaryReading(r);   // distractors are read-aloud readings too
     if (!cand || forms.has(cand) || out.has(cand)) continue;
     out.add(cand);
     if (out.size === n) break;
@@ -203,26 +301,31 @@ function pickReadingDistractors(target, n) {
 
 function buildQuestion(item) {
   const row = S.byChar[item.k];
-  const st = srsOf(item.k, item.facet);
+  const facet = item.facet;
+  const st = srsOf(item.k, facet);
   const mature = st && st.state === "review";
   let mode;
-  if (item.facet === "meaning") {
-    const modes = mature ? ["type-meaning", "mc-meaning", "mc-kanji"] : ["mc-meaning", "mc-kanji", "mc-meaning"];
-    mode = pick(modes);
+  if (isSenseFacet(facet)) {
+    // Reverse (meaning -> kanji) is unfair for a secondary sense: several kanji
+    // can plausibly carry it. Sense cards stay recognition/recall only.
+    mode = mature ? pick(["type-meaning", "mc-meaning", "mc-meaning"]) : "mc-meaning";
+  } else if (facet === "meaning") {
+    mode = pick(mature ? ["type-meaning", "mc-meaning", "mc-kanji"]
+                       : ["mc-meaning", "mc-kanji", "mc-meaning"]);
   } else {
-    mode = mature ? pick(["type-reading", "type-reading", "mc-reading"]) : pick(["mc-reading", "mc-reading", "type-reading"]);
+    mode = pick(mature ? ["type-reading", "type-reading", "mc-reading"]
+                       : ["mc-reading", "mc-reading", "type-reading"]);
   }
-  const q = { item, row, mode };
+  const q = { item, row, mode, facet, senseIdx: SENSE_INDEX[facet] ?? 0 };
   if (mode === "mc-meaning") {
-    q.answer = row.meanings[0];
+    q.answer = senseText(row, facet) || row.meanings[0];
     q.choices = shuffle([q.answer, ...pickMeaningDistractors(row, 3)]);
   } else if (mode === "mc-kanji") {
     q.answer = row.k;
     q.choices = shuffle([row.k, ...pickKanjiDistractors(row, 3)]);
   } else if (mode === "mc-reading") {
-    const primary = (row.on[0] || row.kun[0] || "").replace(/[-.]/g, "");
-    q.answer = primary;
-    q.choices = shuffle([primary, ...pickReadingDistractors(row, 3)]);
+    q.answer = primaryReading(row);
+    q.choices = shuffle([q.answer, ...pickReadingDistractors(row, 3)]);
   }
   return q;
 }
@@ -272,6 +375,8 @@ const TOUR_STEPS = [
     body: "A guided road, five kanji at a time: learn them, quiz them, clear a checkpoint every few steps. It feeds the same review schedule as everything else, so use it as much or as little as you like." },
   { sel: '[data-nav="study"]', title: "Batches",
     body: "Pick a track: newspaper frequency, JLPT level, school grade, or name kanji. Start Batch 1 to add its kanji to your rotation. A kanji shared by several sets is only ever added once." },
+  { sel: '[data-nav="goals"]', title: "Goals",
+    body: "Name a set and a date that matters to you — \"Grade 1, first two batches, by September\". Three things count as knowing a kanji here: you recognise it, you know its most common meaning, and you can read it aloud. Further meanings unlock on their own later. The app will tell you if your pace won't reach the date." },
   { sel: '[data-nav="review"]', title: "Review",
     body: "Your daily queue. Each kanji has a meaning card and a reading card, and the schedule decides when you see them again: right answers push a card further out, misses bring it back." },
   { sel: '[data-nav="stats"]', title: "Stats",
@@ -396,6 +501,7 @@ routes.dashboard = async () => {
       <button class="ghost-btn" id="go-study">Browse batches</button>
       <button class="ghost-btn" id="go-games">Play a game</button>
     </div>
+    ${goalSpotlight(stats)}
     <div class="card chart-card">
       <div class="chart-title">Today's goals</div>
       <div class="chart-sub">Reset at midnight. No pressure, just momentum.</div>
@@ -425,6 +531,40 @@ routes.dashboard = async () => {
     startTour();
   }
 };
+
+/** The fluency ladder in one line, plus the goal with the nearest deadline. */
+function goalSpotlight(stats) {
+  const r = stats.rungs || {};
+  const sn = stats.senses || {};
+  const ladder = r.seen ? `
+    <div class="card chart-card">
+      <div class="chart-title">Fluency ladder</div>
+      <div class="chart-sub">Of ${r.seen} kanji in rotation, counted at the operative bar
+        (recalled after a week away).</div>
+      <div class="hbars">
+        ${rungBar("Meaning", r.meaning || 0, r.seen, "Most common meaning, operative")}
+        ${rungBar("Read aloud", r.reading || 0, r.seen, "Standalone reading, operative")}
+        ${rungBar("Both", r.both || 0, r.seen, "Meaning and reading both operative")}
+      </div>
+      ${sn.unlocked ? `<div class="chart-sub" style="margin-top:8px">Depth:
+        ${sn.unlocked} extra meaning${sn.unlocked === 1 ? "" : "s"} unlocked,
+        ${sn.operative} operative.</div>`
+      : sn.eligible ? `<div class="chart-sub" style="margin-top:8px">${sn.eligible} kanji are
+        solid enough to start earning a second meaning.</div>` : ""}
+    </div>` : "";
+
+  const goals = (S.settings.goals || []).filter((g) => S.colById && S.colById[g.collection]);
+  if (!goals.length) {
+    return ladder + `<div class="card">
+      <b>No goal set.</b> Pick a set of kanji and a date that matters to you, and the
+      dashboard will tell you whether you're on pace.
+      <div class="row" style="margin-top:10px">
+        <button class="ghost-btn" onclick="location.hash='#/goals'">Set a goal</button>
+      </div></div>`;
+  }
+  const dated = goals.filter((g) => g.date).sort((a, b) => a.date.localeCompare(b.date));
+  return ladder + goalCard(dated[0] || goals[0], true);
+}
 
 function nextBatchHint(stats) {
   // primary track = the collection with the most kanji in rotation
@@ -568,24 +708,33 @@ async function batchDetail(cid, i) {
 
 function kanjiModal(k) {
   const r = S.byChar[k];
-  const m = srsOf(k, "meaning"), rd = srsOf(k, "reading");
-  const srsLine = (s) => {
-    if (!s || s.state === "new") return "not started";
+  const srsLine = (facet) => {
+    const s = srsOf(k, facet);
+    if (!s || s.state === "new") return `<span class="tier t0">not started</span>`;
     const due = s.due ? new Date(s.due) : null;
     const when = due ? (due <= new Date() ? "due now" : "due " + due.toLocaleDateString()) : "";
-    return `${s.state} · ${s.reps} reps · ${s.lapses} lapses · ${when}`;
+    const t = tierOf(k, facet);
+    return `<span class="tier t${t}">${TIER_LABEL[t]}</span>
+      <span class="tier-meta">${s.reps} reps · ${s.lapses} lapses · ${when}</span>`;
   };
+  const taught = sensesTaught(k);
+  const locked = r.meanings.length - taught;
   openModal(`
     <button class="modal-close" onclick="document.getElementById('modal-root').innerHTML=''">✕</button>
     <div class="big-kanji">${r.k}</div>
     <dl class="kv">
-      <dt>Meanings</dt><dd>${esc(r.meanings.join(", "))}</dd>
+      <dt>Read aloud</dt><dd>${readingLine(r)}</dd>
+      <dt>Meanings</dt><dd>${senseLadder(r, taught)}
+        ${locked > 0 ? `<div class="chart-sub">${locked} not yet unlocked — they arrive
+          once the meaning card above is operative.</div>` : ""}</dd>
       <dt>On readings</dt><dd class="jp">${r.on.join("、") || "—"}</dd>
       <dt>Kun readings</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
       <dt>Sets</dt><dd>${setBadges(r).map((b) => `<span class="pill">${b}</span>`).join(" ") || "—"}</dd>
       <dt>Strokes</dt><dd>${r.strokes ?? "—"}</dd>
-      <dt>Meaning card</dt><dd>${srsLine(m)}</dd>
-      <dt>Reading card</dt><dd>${srsLine(rd)}</dd>
+      <dt>Meaning card</dt><dd>${srsLine("meaning")}</dd>
+      <dt>Reading card</dt><dd>${srsLine("reading")}</dd>
+      ${srsOf(k, "sense2") ? `<dt>Meaning 2 card</dt><dd>${srsLine("sense2")}</dd>` : ""}
+      ${srsOf(k, "sense3") ? `<dt>Meaning 3 card</dt><dd>${srsLine("sense3")}</dd>` : ""}
     </dl>
     <a href="https://jisho.org/search/${encodeURIComponent(r.k)}%20%23kanji" target="_blank" rel="noopener" style="color:var(--accent)">Look up on jisho.org ↗</a>
   `);
@@ -619,7 +768,10 @@ routes.review = async () => {
   const items = [...due];
   const introduced = new Set();
   for (const it of newItems) {
-    if (!introduced.has(it.k)) {
+    if (it.type === "sense") {
+      // an extra meaning for a kanji already known - its own kind of introduction
+      items.push({ k: it.k, facet: it.facet, type: "sense-intro" });
+    } else if (!introduced.has(it.k)) {
       introduced.add(it.k);
       items.push({ k: it.k, type: "intro" });
     }
@@ -656,33 +808,74 @@ function nextCard(sess) {
   if (sess.pos >= sess.items.length) return sessionDone(sess);
   const item = sess.items[sess.pos];
   if (item.type === "intro") return introCard(sess, item);
+  if (item.type === "sense-intro") return senseIntroCard(sess, item);
   quizCard(sess, item);
 }
 
+function advanceOn(sess, btnId) {
+  let advanced = false;
+  const go = () => { if (advanced) return; advanced = true; sess.pos++; nextCard(sess); };
+  $(btnId).onclick = go;
+  keyOnce((e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); return true; } return false; });
+}
+
+// First contact with a kanji: lead with the two things you'll be held to -
+// its most common meaning, and how you'd say it out loud.
 function introCard(sess, item) {
   const r = S.byChar[item.k];
+  const extra = r.meanings.length - 1;
   setMain(`
     <div class="quiz-wrap">
       ${sessionHeader(sess)}
       <div class="quiz-card intro-card">
         <div class="q-kind">New kanji</div>
         <div class="q-prompt-kanji">${r.k}</div>
+        <div class="headline-pair">
+          <div class="hp-cell"><span class="hp-label">Most common meaning</span>
+            <span class="hp-value">${esc(r.meanings[0] || "—")}</span></div>
+          <div class="hp-cell"><span class="hp-label">Read aloud on its own</span>
+            <span class="hp-value jp">${readingLine(r)}</span></div>
+        </div>
         <div class="intro-rows">
           <dl class="kv">
-            <dt>Meanings</dt><dd>${esc(r.meanings.join(", "))}</dd>
             <dt>On</dt><dd class="jp">${r.on.join("、") || "—"}</dd>
             <dt>Kun</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
-            <dt>Rank</dt><dd>#${r.freq} most frequent</dd>
+            <dt>Rank</dt><dd>#${r.freq || "—"} most frequent</dd>
           </dl>
+          ${extra > 0 ? `<p class="later-note">${extra} further meaning${extra === 1 ? "" : "s"}
+            (${esc(r.meanings.slice(1, 4).join(", "))}${r.meanings.length > 4 ? ", …" : ""})
+            — you'll meet ${extra === 1 ? "it" : "them"} once this one sticks.</p>` : ""}
         </div>
         <button class="primary-btn" id="cont">Got it →</button>
         <div class="continue-hint">Enter ↵</div>
       </div>
     </div>`);
-  let advanced = false;
-  const go = () => { if (advanced) return; advanced = true; sess.pos++; nextCard(sess); };
-  $("#cont").onclick = go;
-  keyOnce((e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); return true; } return false; });
+  advanceOn(sess, "#cont");
+}
+
+// A kanji you already know, coming back with another meaning. This card is the
+// visible payoff of the sense ladder, so it says plainly why it turned up now.
+function senseIntroCard(sess, item) {
+  const r = S.byChar[item.k];
+  const idx = SENSE_INDEX[item.facet];
+  setMain(`
+    <div class="quiz-wrap">
+      ${sessionHeader(sess)}
+      <div class="quiz-card intro-card">
+        <div class="q-kind">A new meaning for a kanji you know</div>
+        <div class="q-prompt-kanji">${r.k}</div>
+        <p class="sense-why">You've got “<b>${esc(r.meanings[0])}</b>” down.
+          ${r.k} also carries a ${SENSE_ORDINAL[idx]} meaning:</p>
+        <div class="headline-pair">
+          <div class="hp-cell wide"><span class="hp-label">${SENSE_ORDINAL[idx]} meaning</span>
+            <span class="hp-value">${esc(r.meanings[idx] || "—")}</span></div>
+        </div>
+        ${senseLadder(r, idx + 1)}
+        <button class="primary-btn" id="cont" style="margin-top:16px">Got it →</button>
+        <div class="continue-hint">Enter ↵</div>
+      </div>
+    </div>`);
+  advanceOn(sess, "#cont");
 }
 
 let keyHandler = null;
@@ -696,28 +889,42 @@ function keyOnce(fn) {
 }
 
 const MODE_LABEL = {
-  "mc-meaning": "What does this mean?",
+  "mc-meaning": "What is its most common meaning?",
   "mc-kanji": "Which kanji means…",
-  "mc-reading": "Pick a correct reading",
-  "type-meaning": "Type the meaning",
-  "type-reading": "Type a reading (romaji ok)",
+  "mc-reading": "Read it aloud — which reading?",
+  "type-meaning": "Type its most common meaning",
+  "type-reading": "Type how you'd read it aloud (romaji ok)",
 };
+const FACET_TAG = { meaning: "meaning", reading: "reading aloud",
+                    sense2: "meaning 2", sense3: "meaning 3" };
+
+function modeLabel(q) {
+  if (!isSenseFacet(q.facet)) return MODE_LABEL[q.mode];
+  const n = SENSE_ORDINAL[q.senseIdx] || "next";
+  return q.mode === "type-meaning" ? `Type its ${n} meaning` : `Which is its ${n} meaning?`;
+}
 
 function quizCard(sess, item) {
   const q = buildQuestion(item);
   const t0 = Date.now();
-  const facetTag = `<span class="facet-${item.facet}">${item.facet}</span>`;
+  const cls = isSenseFacet(item.facet) ? "meaning" : item.facet;
+  const facetTag = `<span class="facet-${cls}">${FACET_TAG[item.facet] || item.facet}</span>`;
+  // On a sense card, name what they already know so the question is unambiguous.
+  const known = isSenseFacet(item.facet)
+    ? `<div class="sense-known">You already know <b>${q.row.k}</b> =
+         ${knownSenses(q.row, q.senseIdx).map((m) => `“${esc(m)}”`).join(", ")}.
+         It has another meaning.</div>` : "";
   let inner = "";
   if (q.mode === "mc-kanji") {
     inner = `<div class="q-prompt-text">${esc(q.row.meanings[0])}</div>
       <div class="choices">${q.choices.map((c, i) => `<button class="choice jp" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${c}</button>`).join("")}</div>`;
   } else if (q.mode === "mc-meaning" || q.mode === "mc-reading") {
     const jp = q.mode === "mc-reading" ? "jp" : "";
-    inner = `<div class="q-prompt-kanji">${q.row.k}</div>
+    inner = `<div class="q-prompt-kanji">${q.row.k}</div>${known}
       <div class="choices">${q.choices.map((c, i) => `<button class="choice ${jp}" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}</div>`;
   } else {
     const isReading = q.mode === "type-reading";
-    inner = `<div class="q-prompt-kanji">${q.row.k}</div>
+    inner = `<div class="q-prompt-kanji">${q.row.k}</div>${known}
       <input class="type-input ${isReading ? "jp" : ""}" id="type-in" autocomplete="off" spellcheck="false"
              placeholder="${isReading ? "reading…" : "meaning…"}">
       ${isReading ? `<div class="kana-preview" id="kana-prev"></div>` : ""}
@@ -727,14 +934,14 @@ function quizCard(sess, item) {
     <div class="quiz-wrap">
       ${sessionHeader(sess)}
       <div class="quiz-card">
-        <div class="q-kind">${facetTag} · ${MODE_LABEL[q.mode]}</div>
+        <div class="q-kind">${facetTag} · ${modeLabel(q)}</div>
         ${inner}
         <div class="q-feedback" id="feedback"></div>
       </div>
     </div>`);
 
-  const settle = (correct, chosen) => {
-    finishAnswer(sess, item, q, correct, chosen, Date.now() - t0);
+  const settle = (correct, chosen, note) => {
+    finishAnswer(sess, item, q, correct, chosen, Date.now() - t0, note);
   };
 
   if (q.choices) {
@@ -764,20 +971,41 @@ function quizCard(sess, item) {
     const check = () => {
       if (!input.value.trim()) return;
       input.disabled = true; $("#type-go").disabled = true;
-      let ok;
-      if (q.mode === "type-reading") {
-        ok = readingForms(q.row).has(toHiragana(input.value));
-      } else {
-        ok = meaningMatches(input.value, q.row);
-      }
-      settle(ok, input.value);
+      const g = q.mode === "type-reading"
+        ? gradeReading(input.value, q.row)
+        : gradeMeaning(input.value, q.row, q.facet);
+      settle(g.ok, input.value, g);
     };
     $("#type-go").onclick = check;
     keyOnce((e) => { if (e.key === "Enter") { check(); return e.target.disabled !== false; } return false; });
   }
 }
 
-function finishAnswer(sess, item, q, correct, chosen, ms) {
+// ---------------------------------------------------------------- shared displays
+
+/** How many of this kanji's senses the learner has actually been taught. */
+function sensesTaught(k) {
+  let n = 0;
+  for (const f of MEANING_FACETS) { if (srsOf(k, f)) n++; else break; }
+  return Math.max(1, n);
+}
+
+/** The read-aloud reading, labelled 音読み / 訓読み. */
+function readingLine(row) {
+  const sp = spokenReading(row);
+  if (!sp) return "—";
+  return `<span class="jp">${sp.kana}</span> <span class="rk">${READING_KIND[sp.kind]}</span>`;
+}
+
+/** Numbered senses; the ones past `upto` are shown dimmed as "coming later". */
+function senseLadder(row, upto) {
+  if (!row.meanings.length) return "—";
+  return `<div class="sense-ladder">${row.meanings.map((m, i) =>
+    `<span class="sense-chip ${i < upto ? "on" : ""}"><i>${i + 1}</i>${esc(m)}</span>`
+  ).join("")}</div>`;
+}
+
+function finishAnswer(sess, item, q, correct, chosen, ms, note) {
   const key = item.k + "|" + item.facet;
   const isFirst = !sess.firstTry.has(key);
   if (isFirst) sess.firstTry.set(key, correct);
@@ -797,10 +1025,27 @@ function finishAnswer(sess, item, q, correct, chosen, ms) {
 
   const r = q.row;
   const fb = $("#feedback");
+  // When the answer was a real-but-different meaning or reading, say so. A bare
+  // "Not quite" would look like the app didn't recognise a correct answer; the
+  // whole point of the strict grade is to teach which sense ranks first.
+  let nudge = "";
+  if (note && note.other && isMeaningFacet(q.facet)) {
+    const want = senseText(r, q.facet);
+    nudge = correct
+      ? `<div class="nudge">Accepted — but its ${SENSE_ORDINAL[q.senseIdx]} meaning is “<b>${esc(want)}</b>”.</div>`
+      : `<div class="nudge">“${esc(note.other)}” <i>is</i> a meaning of ${r.k} — just not this card's.
+           This one tests its ${SENSE_ORDINAL[q.senseIdx]} meaning: “<b>${esc(want)}</b>”.
+           ${q.senseIdx === 0 ? "You'll meet the others later, once this one sticks." : ""}</div>`;
+  } else if (note && note.other && q.facet === "reading") {
+    const sp = spokenReading(r);
+    nudge = `<div class="nudge">“<span class="jp">${esc(note.other)}</span>” is a real reading of ${r.k}.
+      Read on its own it's usually “<span class="jp">${sp.kana}</span>” (${READING_KIND[sp.kind]}).</div>`;
+  }
   fb.innerHTML = `
     <div class="verdict ${correct ? "ok" : "no"}">${correct ? "Correct!" : "Not quite"}</div>
-    <div class="detail"><span class="jp">${r.k}</span> — ${esc(r.meanings.slice(0, 3).join(", "))}
-      · <span class="jp">${[...r.on.slice(0, 2), ...r.kun.slice(0, 2)].join("、")}</span></div>
+    ${nudge}
+    <div class="detail"><span class="jp">${r.k}</span> — read aloud ${readingLine(r)}</div>
+    ${senseLadder(r, sensesTaught(r.k))}
     <button class="primary-btn" id="next-btn" style="margin-top:12px">Continue ↵</button>`;
   let advanced = false;
   const go = () => { if (advanced) return; advanced = true; sess.pos++; nextCard(sess); };
@@ -871,8 +1116,10 @@ routes.games = async (arg) => {
   }
 };
 
+// Everything that quizzes "the reading" targets the read-aloud reading.
 function primaryReading(r) {
-  return (r.on[0] || r.kun[0] || "").replace(/[-.]/g, "");
+  const sp = spokenReading(r);
+  return sp ? sp.kana : "";
 }
 function gameLog(k, facet, mode, correct) {
   api("/api/answer", { k, facet, mode, correct, srs: false }).catch(() => {});
@@ -1688,13 +1935,20 @@ function pathLearn(node) {
         <div class="quiz-card intro-card">
           <div class="q-kind">Meet this kanji</div>
           <div class="q-prompt-kanji">${r.k}</div>
+          <div class="headline-pair">
+            <div class="hp-cell"><span class="hp-label">Most common meaning</span>
+              <span class="hp-value">${esc(r.meanings[0] || "—")}</span></div>
+            <div class="hp-cell"><span class="hp-label">Read aloud on its own</span>
+              <span class="hp-value jp">${readingLine(r)}</span></div>
+          </div>
           <div class="intro-rows">
             <dl class="kv">
-              <dt>Meanings</dt><dd>${esc(r.meanings.join(", "))}</dd>
               <dt>On</dt><dd class="jp">${r.on.join("、") || "—"}</dd>
               <dt>Kun</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
               <dt>Rank</dt><dd>#${r.freq || "—"} by frequency</dd>
             </dl>
+            ${r.meanings.length > 1 ? `<p class="later-note">${r.meanings.length - 1} further
+              meaning${r.meanings.length === 2 ? "" : "s"} — they come back later, once this one sticks.</p>` : ""}
           </div>
           <button class="primary-btn" id="p-next">${i === node.chars.length - 1 ? "Finish" : "Got it →"}</button>
           <div class="continue-hint">Enter ↵</div>
@@ -1833,6 +2087,226 @@ function pathGame(node) {
   });
 }
 
+// ================================================================ goals
+//
+// A goal names a set of kanji, a bar to clear on each rung of the fluency
+// ladder, and a date the user picked for reasons outside this app. The app's
+// job is to report honestly whether that date is reachable at the current
+// settings - not to quietly reschedule the SRS to make the number look good.
+
+const BAR_LABEL = { operative: "Operative", solid: "Solid" };
+const BAR_DESC = {
+  operative: "recalled after a week away — enough to read it in the wild",
+  solid: "recalled after three weeks away — it's yours",
+};
+
+function goalChars(goal) {
+  const col = S.colById[goal.collection];
+  if (!col) return [];
+  const all = Array.from(col.chars);
+  return goal.batches ? all.slice(0, goal.batches * S.settings.batch_size) : all;
+}
+
+function goalStatus(goal) {
+  const chars = goalChars(goal);
+  const bar = goal.bar === "solid" ? 3 : 2;
+  let started = 0, meaning = 0, reading = 0, both = 0, senses = 0;
+  for (const k of chars) {
+    const m = tierOf(k, "meaning"), rd = tierOf(k, "reading");
+    // "started" = in the rotation at all. A freshly added card is tier 0 but the
+    // kanji is very much started, and pacing depends on this being intake, not recall.
+    if (srsOf(k, "meaning")) started++;
+    if (m >= bar) meaning++;
+    if (rd >= bar) reading++;
+    if (m >= bar && rd >= bar) both++;
+    if (tierOf(k, "sense2") >= bar) senses++;
+  }
+  const total = chars.length;
+  const notStarted = total - started;
+  const daysLeft = goal.date
+    ? Math.ceil((new Date(goal.date + "T23:59:59") - Date.now()) / 86400000) : null;
+  // A card can't be introduced today and be operative tomorrow: it needs about
+  // two weeks of successful reviews to ripen. So the intake window is shorter
+  // than the calendar window, and pace has to be computed against that.
+  const intake = daysLeft === null ? null : Math.max(0, daysLeft - OPERATIVE_LEAD_DAYS);
+  let needPerDay = null;
+  if (intake !== null && notStarted > 0) needPerDay = intake > 0 ? Math.ceil(notStarted / intake) : Infinity;
+  else if (intake !== null) needPerDay = 0;
+  return { chars, total, started, notStarted, meaning, reading, both, senses,
+           daysLeft, needPerDay, bar };
+}
+
+function goalName(goal) {
+  const col = S.colById[goal.collection];
+  const base = col ? col.name : goal.collection;
+  if (!goal.batches) return base;
+  return goal.batches === 1 ? `${base} · first batch`
+                            : `${base} · first ${goal.batches} batches`;
+}
+
+function rungBar(label, n, total, tip) {
+  const pct = total ? Math.round((n / total) * 100) : 0;
+  return `<div class="hb-row" data-tip="${tip}">
+      <span class="hb-label">${label}</span>
+      <div class="hb-track"><div class="hb-fill" style="width:${pct}%"></div></div>
+      <span class="hb-val">${n}/${total}</span>
+    </div>`;
+}
+
+function goalCard(goal, compact) {
+  const st = goalStatus(goal);
+  const pct = st.total ? Math.round((st.both / st.total) * 100) : 0;
+  let pace = "";
+  if (st.daysLeft !== null) {
+    if (st.daysLeft < 0) {
+      pace = `<div class="pace late">Target date passed. ${st.both} of ${st.total} cleared —
+        pick a new date when you're ready.</div>`;
+    } else if (st.notStarted === 0) {
+      pace = `<div class="pace ok">Every kanji is in rotation with ${st.daysLeft} day${st.daysLeft === 1 ? "" : "s"} to go.
+        From here it's review, not intake.</div>`;
+    } else if (st.needPerDay === Infinity) {
+      pace = `<div class="pace late">${st.notStarted} kanji still to start, and under
+        ${OPERATIVE_LEAD_DAYS} days left — they can't ripen to <b>${BAR_LABEL[goal.bar]}</b> in time.
+        Push the date out, or narrow the goal.</div>`;
+    } else {
+      const budget = S.settings.new_per_day;
+      const ok = st.needPerDay <= budget;
+      pace = `<div class="pace ${ok ? "ok" : "late"}">
+        ${st.notStarted} kanji left to start, ${st.daysLeft} days out.
+        Allowing ~${OPERATIVE_LEAD_DAYS} days for the last ones to ripen, that's
+        <b>${st.needPerDay}/day</b> — ${ok
+          ? `within your ${budget}/day setting.`
+          : `above your ${budget}/day setting. Raise it in Settings, move the date, or trim the goal.`}</div>`;
+    }
+  }
+  return `
+    <div class="card goal-card">
+      <div class="goal-head">
+        <div>
+          <div class="goal-title">${esc(goalName(goal))}</div>
+          <div class="chart-sub">${st.total} kanji · bar: <b>${BAR_LABEL[goal.bar]}</b>
+            (${BAR_DESC[goal.bar]})${goal.date ? ` · by ${goal.date}` : " · no date set"}</div>
+        </div>
+        <div class="goal-pct">${pct}%</div>
+      </div>
+      <div class="hbars">
+        ${rungBar("Recognise", st.started, st.total, "Kanji you have started at all")}
+        ${rungBar("Meaning", st.meaning, st.total, `Most common meaning, at the ${BAR_LABEL[goal.bar]} bar`)}
+        ${rungBar("Read aloud", st.reading, st.total, "Standalone reading, at the same bar")}
+        ${rungBar("All three", st.both, st.total, "Meaning and reading both cleared — the goal proper")}
+      </div>
+      ${st.senses ? `<div class="chart-sub" style="margin-top:8px">Bonus: ${st.senses} of these
+        have a second meaning at the same bar.</div>` : ""}
+      ${pace}
+      ${compact ? `<div class="row" style="margin-top:12px">
+          <button class="ghost-btn" onclick="location.hash='#/goals'">All goals</button>
+        </div>`
+        : `<div class="row" style="margin-top:12px">
+          <button class="ghost-btn" data-goal-study="${goal.id}">Study this set</button>
+          <button class="ghost-btn danger" data-goal-del="${goal.id}">Remove</button>
+        </div>`}
+    </div>`;
+}
+
+async function saveGoals(goals) {
+  S.settings.goals = goals;
+  await api("/api/settings", { goals });
+}
+
+routes.goals = async () => {
+  await loadState();
+  await loadCollections();
+  const goals = S.settings.goals || [];
+  const maxBatches = (cid) => Math.ceil(
+    Array.from(S.colById[cid].chars).length / S.settings.batch_size);
+
+  const firstCol = "g1";
+  const colOpts = S.collections.map((c) =>
+    `<option value="${c.id}" ${c.id === firstCol ? "selected" : ""}>${esc(c.group)} — ${esc(c.name)}</option>`).join("");
+
+  setMain(`
+    <h1>Goals</h1>
+    <p class="sub">Name a set of kanji and a date that matters to you. The app reports
+      whether you're on pace — it won't shuffle the review schedule to flatter the number.</p>
+
+    <div class="card ladder-card">
+      <div class="chart-title">What "knowing" a kanji means here</div>
+      <ol class="ladder">
+        <li><b>Recognise it</b> — you've seen it and it's in your rotation.</li>
+        <li><b>Its most common meaning</b> — specifically the most common one.</li>
+        <li><b>Read it aloud</b> — what you'd say seeing it alone on a sign.</li>
+        <li><b>Its further meanings</b> — these unlock by themselves once rung 2
+          holds, and come back as review, not as new material.</li>
+      </ol>
+      <p class="chart-sub" style="margin:0">A goal tracks rungs 1–3. Rung 4 keeps
+        going after the goal is met — it's depth, not a finish line.</p>
+    </div>
+
+    ${goals.length ? goals.map((g) => goalCard(g, false)).join("")
+      : `<div class="card"><b>No goals yet.</b> A good first one: Grade 1, first two
+         batches, by a date about two months out.</div>`}
+
+    <h2>New goal</h2>
+    <div class="card">
+      <div class="form-grid">
+        <label>Set</label><select id="goal-col">${colOpts}</select>
+        <label>How much of it</label><select id="goal-batches"></select>
+        <label>Target date</label><input type="date" id="goal-date">
+        <label>Bar to clear</label>
+        <select id="goal-bar">
+          <option value="operative">Operative — recalled after a week</option>
+          <option value="solid">Solid — recalled after three weeks</option>
+        </select>
+      </div>
+      <div class="row" style="margin-top:14px"><button class="primary-btn" id="goal-add">Add goal</button></div>
+    </div>
+  `);
+
+  const batchSel = $("#goal-batches");
+  const fillBatches = () => {
+    const cid = $("#goal-col").value;
+    const n = maxBatches(cid);
+    const opts = [`<option value="0">All ${Array.from(S.colById[cid].chars).length} kanji</option>`];
+    for (let i = 1; i <= Math.min(n, 20); i++) {
+      opts.push(`<option value="${i}" ${i === 1 ? "selected" : ""}>First ${i} batch${i === 1 ? "" : "es"} (${Math.min(i * S.settings.batch_size, Array.from(S.colById[cid].chars).length)} kanji)</option>`);
+    }
+    batchSel.innerHTML = opts.join("");
+    batchSel.value = "1";
+  };
+  $("#goal-col").onchange = fillBatches;
+  fillBatches();
+
+  const d = new Date(); d.setDate(d.getDate() + 60);
+  $("#goal-date").value = d.toISOString().slice(0, 10);
+
+  $("#goal-add").onclick = async () => {
+    const goal = {
+      id: "g" + Date.now(),
+      collection: $("#goal-col").value,
+      batches: parseInt(batchSel.value, 10),
+      date: $("#goal-date").value,
+      bar: $("#goal-bar").value,
+      created: new Date().toISOString().slice(0, 10),
+    };
+    await saveGoals([...(S.settings.goals || []), goal]);
+    routes.goals();
+  };
+  document.querySelectorAll("[data-goal-del]").forEach((el) => {
+    el.onclick = async () => {
+      if (!confirm("Remove this goal? Your review progress is not affected.")) return;
+      await saveGoals((S.settings.goals || []).filter((g) => g.id !== el.dataset.goalDel));
+      routes.goals();
+    };
+  });
+  document.querySelectorAll("[data-goal-study]").forEach((el) => {
+    el.onclick = () => {
+      const g = (S.settings.goals || []).find((x) => x.id === el.dataset.goalStudy);
+      if (g) location.hash = `#/study/${g.collection}/0`;
+    };
+  });
+  bindTips($("#main"));
+};
+
 // ================================================================ stats
 
 routes.stats = async () => {
@@ -1937,6 +2411,29 @@ routes.settings = async () => {
         <label>Session length (cards)</label>${sel("session_size", [10, 20, 30, 50], s.session_size)}
       </div>
     </div>
+    <h2>Meanings and readings</h2>
+    <div class="card">
+      <div class="form-grid">
+        <label>Extra meanings per day</label>${sel("sense_per_day", [0, 2, 4, 8, 15], s.sense_per_day)}
+        <label>Grade the primary meaning strictly</label>
+        <select id="set-strict_primary">
+          <option value="1" ${s.strict_primary ? "selected" : ""}>Yes — only the most common sense</option>
+          <option value="0" ${s.strict_primary ? "" : "selected"}>No — any real meaning counts</option>
+        </select>
+      </div>
+      <p class="settings-note">A kanji's second and third meanings unlock on their own once
+        you can recall the first after a week away, then arrive as review rather than as new
+        material. <b>Extra meanings per day</b> caps how fast they arrive; it has its own
+        budget so deepening never eats into new kanji. Set it to 0 to pause it entirely.</p>
+      <p class="settings-note">With strict grading on, typing “Sun” for 日 is marked wrong and
+        the app tells you why: that card is for its most common sense, “Day”. That strictness
+        is what makes “I know this kanji” mean something. Turn it off if you'd rather any
+        correct meaning counted.</p>
+      <p class="settings-note">Reading cards ask how you'd say a kanji <b>on its own</b> —
+        what you'd read off a sign. Those readings are curated in
+        <code>data/spoken.json</code>, which you can edit; the app still accepts the kanji's
+        other real readings and just nudges you toward the standalone one.</p>
+    </div>
     <h2>Data</h2>
     <div class="card">
       <div class="row">
@@ -1955,13 +2452,17 @@ routes.settings = async () => {
     <p class="settings-note">You don't need a plane ticket for it to work for you, though. Whether you're studying for the JLPT, planning a trip, or just want to read a menu someday, the plan is the same one: learn the most common characters first, in small batches, and show up for a few minutes of review each day. That's the whole trick, and it's yours too.</p>
     <p class="settings-note">Kanji data derived from KANJIDIC2 © EDRDG, used under CC BY-SA 4.0 (via davidluzgouveia/kanji-data). Frequency ranks are from newspaper corpus counts.</p>
   `);
-  for (const name of ["top_n", "batch_size", "new_per_day", "session_size"]) {
+  for (const name of ["top_n", "batch_size", "new_per_day", "session_size", "sense_per_day"]) {
     $("#set-" + name).onchange = async (e) => {
       await api("/api/settings", { [name]: parseInt(e.target.value, 10) });
       await loadState();
       await loadCollections();
     };
   }
+  $("#set-strict_primary").onchange = async (e) => {
+    await api("/api/settings", { strict_primary: e.target.value === "1" });
+    await loadState();
+  };
   $("#settings-tour").onclick = () => { S.forceTour = true; location.hash = "#/"; };
   $("#export-btn").onclick = async () => {
     const dump = await api("/api/export");
@@ -2001,6 +2502,17 @@ $("#theme-toggle").onclick = () => {
   const res = await fetch("/data/kanji.json");
   S.kanji = await res.json();
   S.byChar = Object.fromEntries(S.kanji.map((r) => [r.k, r]));
+  // Curated read-aloud readings; the heuristic in spokenReading() covers the
+  // rest. spoken.local.json is the user's own overlay: optional, wins over the
+  // shipped file, and survives updates (update.py preserves it).
+  const loadSpoken = async (p) => {
+    try {
+      const r = await fetch(p);
+      return r.ok ? ((await r.json()).overrides || {}) : {};
+    } catch (e) { return {}; }
+  };
+  S.spoken = { ...(await loadSpoken("/data/spoken.json")),
+               ...(await loadSpoken("/data/spoken.local.json")) };
   await loadState();
   await loadCollections();
   if (!localStorage.getItem("kt-theme") && S.settings.theme) {

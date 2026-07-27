@@ -1,4 +1,5 @@
-# user progress database
+# user progress database and personal reading overrides
+data/spoken.local.json
 data/trainer.db
 data/trainer.db-wal
 data/trainer.db-shm
