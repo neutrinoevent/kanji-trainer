@@ -92,6 +92,18 @@ fix remain in existing databases.
 
 **Fix.** Optional one-time cleanup on startup, or leave them.
 
+## 7. ~~Batch percentage doesn't move during a session~~ — FIXED 2026-07-27
+
+**What.** Batch mastery took one flat value per fluency tier, so an evening of
+study showed no movement at all. Present since before the fluency rewrite: the
+old code returned a flat 0.25 for any card in `learning` state, and a card
+cannot reach `review` the same night because learning step 2 is a one-day
+interval. Drill answers also counted for nothing.
+
+**Fixed.** Mastery now interpolates continuously toward the next tier using the
+same evidence the tiers use, and drills count as evidence (games still don't).
+The tiers themselves are unchanged and still strict.
+
 ---
 
 ## Not issues, recorded so they aren't "fixed" by mistake

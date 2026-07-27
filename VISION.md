@@ -646,6 +646,71 @@ specific gaps remaining. The bar should be legible, not mysterious.
 
 ---
 
+## V-007 — The batch percentage that wouldn't move (raised 2026-07-27)
+
+### The report
+
+The learner said their jōyō batch-1 percentage didn't seem to move despite a lot
+of work the previous night. They were not misremembering. Reproduced exactly:
+**200 correct answers across four question types, plus 100 drill answers, and the
+number sat at 35.0% the entire time.**
+
+### Two causes, one of them older than this session's work
+
+**1. `strength()` was a step function.** Batch mastery took one flat value per
+tier, so nothing between tier boundaries showed up at all.
+
+This predates the fluency rewrite. At tag `v1.1-fluency-ladder` the old code was:
+
+```python
+if row["state"] == "learning":
+    return 0.25          # flat, no matter how much work
+```
+
+and a card cannot reach `review` state the same night anyway, because learning
+step 2 sets a **one-day** interval. So under the old code an evening of study
+pinned the batch at 25% and left it there. The rewrite in V-006 changed the
+number (0.35) but kept the same flat shape — it did not fix the bug and did not
+cause it.
+
+**2. Drill answers counted for nothing.** `demonstration_map()` filtered on
+`srs=1`, on the reasoning that drills are practice rather than assessment. But a
+drill asks the same questions in the same formats and requires the same
+retrieval; refusing to count it made a long practice session look like nothing
+had happened, which is precisely the complaint.
+
+### The fix
+
+**Continuous progress within a tier.** `demo_progress()` and `solid_progress()`
+return how far a card is toward the next bar — the mean of its capped component
+ratios (question types, productions from memory, on-target answers, distinct
+days). `strength()` interpolates: `0.75 × progress` below operative,
+`0.75 + 0.25 × progress` above it. Verified monotonic and bounded 0..1.
+
+The same night's work now reads 0 → 23.4% → 46.9% → 60.9% → 65.6%, and 95.3%
+after one round on a second day. The plateau at ~66% is meaningful rather than
+broken: every component except *distinct days* is maxed, so the number is saying
+"the only thing left is to come back tomorrow".
+
+**Drills count as evidence, games do not.** `demonstration_map()` now selects by
+question type (`QUIZ_MODES`) rather than by whether the answer moved the
+schedule. Drills use the real quiz modes and count; games use their own mode
+names (`horde`, `snap`, `match-meaning`) and stay out of the fluency bar, since
+they are a different kind of practice. Verified both directions.
+
+**The tiers themselves stay binary and unchanged.** After a full night the rungs
+still read `meaning: 0, reading: 0` — the bar has not moved, and should not have.
+What changed is that the learner can now see the distance they covered toward it.
+
+### The principle worth keeping
+
+A progress number that cannot move during a session teaches the learner that
+effort is invisible. The bar can stay strict — it should — but the *distance to
+the bar* has to be legible while it is being closed. Strictness and visible
+progress are not in tension; conflating them was the mistake.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.

@@ -229,6 +229,8 @@ FACET_MODES = {
 # Producing an answer from memory is a stronger demonstration than picking it
 # out of four. Every tier above 'learning' requires at least one production.
 PRODUCTION_MODES = {"type-meaning", "type-reading"}
+# The question types that constitute the bar, wherever they are answered.
+QUIZ_MODES = set().union(*FACET_MODES.values())
 
 # Thresholds. 'days' is diversity of encounter, not a waiting period: it stops a
 # single intense session from certifying a kanji the learner will not recall
@@ -240,15 +242,22 @@ TIER_SOLID = {"prod": 2, "hits": 8, "days": 4, "acc": 0.80}   # + every mode
 def demonstration_map():
     """Per-card evidence from the review log, keyed (kanji, facet).
 
-    Only scheduled answers count (srs=1) — games and drills are practice, not
-    assessment. Only on-target answers count as hits: see `on_target` in
-    /api/answer, which is how "you typed a real but secondary meaning" is kept
-    distinct from "you produced the meaning this card is for".
+    Counted by question type rather than by whether the answer moved the
+    schedule, so drilling a set builds real evidence — it is the same retrieval
+    in the same question types, and refusing to count it made an evening of
+    practice look like nothing happened. Games use their own mode names and stay
+    out of the fluency bar; they are a different kind of practice.
+
+    Only on-target answers count as hits: see `on_target` in /api/answer, which
+    is how "you typed a real but secondary meaning" is kept distinct from "you
+    produced the meaning this card is for".
     """
     out = {}
+    marks = ",".join("?" * len(QUIZ_MODES))
     for r in db().execute(
         "SELECT kanji, facet, mode, day, SUM(on_target) hits, COUNT(*) n"
-        " FROM reviews WHERE srs=1 GROUP BY kanji, facet, mode, day"
+        f" FROM reviews WHERE mode IN ({marks})"
+        " GROUP BY kanji, facet, mode, day", tuple(sorted(QUIZ_MODES))
     ):
         d = out.setdefault(
             (r["kanji"], r["facet"]),
@@ -263,6 +272,37 @@ def demonstration_map():
             if r["mode"] in PRODUCTION_MODES:
                 d["prod"] += hits
     return out
+
+
+def _ratio(part, whole):
+    return min(1.0, part / whole) if whole else 1.0
+
+
+def demo_progress(facet, d):
+    """How far a card is toward *operative*, 0..1.
+
+    Tiers are a bar, but a bar alone makes an evening of honest work look like
+    nothing happened: every card sat at the same flat value until the next day
+    ticked over. Progress is measured continuously so effort is visible while
+    it is being made, even though the tier itself has not changed yet.
+    """
+    if not d or not d["hits"]:
+        return 0.0
+    t = TIER_OPERATIVE
+    parts = (_ratio(len(d["modes"]), t["modes"]), _ratio(d["prod"], t["prod"]),
+             _ratio(d["hits"], t["hits"]), _ratio(len(d["days"]), t["days"]))
+    return sum(parts) / len(parts)
+
+
+def solid_progress(facet, d):
+    """How far an operative card is toward *solid*, 0..1."""
+    if not d:
+        return 0.0
+    s = TIER_SOLID
+    want = FACET_MODES.get(facet, set())
+    parts = (_ratio(len(d["modes"] & want), len(want)), _ratio(d["prod"], s["prod"]),
+             _ratio(d["hits"], s["hits"]), _ratio(len(d["days"]), s["days"]))
+    return sum(parts) / len(parts)
 
 
 def demo_tier(facet, d):
@@ -508,8 +548,20 @@ def start_batch(cid, index, settings):
 
 def strength(row, demo):
     """Card strength for batch mastery, on the same evidence as the tiers, so a
-    batch showing 80% means 80% demonstrated rather than 80% recently scheduled."""
-    return [0.0, 0.35, 0.75, 1.0][demo_tier(row["facet"], demo)]
+    batch showing 80% means 80% demonstrated rather than 80% recently scheduled.
+
+    Continuous, not a step per tier: a learner who spends an evening answering
+    the same batch correctly in several question types has demonstrably moved,
+    and the number has to show it even though the tier will not change until
+    they come back another day.
+    """
+    facet = row["facet"]
+    tier = demo_tier(facet, demo)
+    if tier >= 3:
+        return 1.0
+    if tier == 2:
+        return 0.75 + 0.25 * solid_progress(facet, demo)
+    return 0.75 * demo_progress(facet, demo)
 
 
 def get_stats(settings):
