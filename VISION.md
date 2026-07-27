@@ -172,6 +172,81 @@ Two things found while building it, fixed in the same pass:
 
 ---
 
+## V-002 — Phone access over Tailscale (raised 2026-07-27) — PROPOSED, NOT BUILT
+
+### The idea
+
+Mirror the `./run.sh phone` pattern already used by the Polaris project on this
+machine: publish the local server onto the owner's tailnet over real HTTPS, so an
+iPhone reaches it from any wifi or cellular connection with no port forwarding
+and nothing exposed to the public internet. Then extend the same capability to
+Alexander's brother — Tailscale on his Windows PC and his iPhone, reaching *his*
+kanji-trainer and his own progress.
+
+### Findings from the audit (not yet acted on)
+
+**The collision risk is real and currently live.** Polaris uses plain
+`tailscale serve --bg --https=443 http://127.0.0.1:$PORT` — no `tsnet`, no
+separate node. That means it claims `/` on **port 443 of this machine's single
+tailnet identity**, which is `polaris.tail467397.ts.net`. At the time of writing,
+`tailscale serve status` shows that slot occupied and pointing at port 3111.
+
+So a naive copy of the Polaris approach into kanji-trainer would:
+
+- overwrite Polaris's mapping when kanji-trainer starts, and
+- tear down kanji-trainer's mapping when Polaris exits (its trap runs
+  `tailscale serve --https=443 off`), and vice versa.
+
+The two apps would silently fight over one slot. Avoiding that is a design
+requirement, not a nicety:
+
+- Give kanji-trainer its **own HTTPS port** (`--https=8443` →
+  `https://polaris.tail467397.ts.net:8443/`), never 443.
+- Tear down **scoped to that port only** (`tailscale serve --https=8443 off`).
+  Never `tailscale serve reset`, which would nuke Polaris's config too.
+- App ports already don't collide (Polaris 3000/3111, kanji-trainer 7777).
+
+**Serve, never Funnel.** `tailscale funnel` publishes to the whole internet.
+This app has no authentication of any kind — anyone who can reach it can read
+and modify progress — so Funnel must never be used. Polaris's script makes the
+same call and documents it; match that.
+
+**Do not change the bind address.** `server.py` binds `127.0.0.1`, and Tailscale
+Serve proxies to it. That is exactly right: the app stays invisible to the local
+wifi LAN and Tailscale is the only route in. Switching to `0.0.0.0` to "make it
+reachable" would be a real regression.
+
+**Mobile layout is mostly already there** — `index.html` has a proper viewport
+meta, and `app.css` collapses the sidebar to a scrolling top bar at 760px and
+stacks answer choices to one column. One known gap: `.form-grid` is a fixed
+`200px 220px` grid, so the Goals form and the Settings page overflow a phone
+screen. That needs a breakpoint before phone access is pleasant.
+
+**The brother's case is separate and clean.** He would run Tailscale on his own
+account, his own Windows PC, his own iPhone — his tailnet, not Alexander's. No
+sharing, no cross-account access, no exposure of anyone's machine to anyone
+else. The catch is the project's founding constraint: he is a non-technical
+Windows user and the whole app is "double-click `run.bat`". `tailscale serve` on
+Windows is a CLI call. A `phone.bat` would need to detect Tailscale, explain
+signing in, handle the not-installed case, and fail gracefully back to plain
+local use rather than leaving him stuck.
+
+**Standing caveat.** Phone access only works while the host machine is awake and
+running the server. This is a remote-control-your-laptop feature, not a hosted
+service — worth stating plainly in the UI or the README so nobody expects
+otherwise.
+
+### Open questions
+
+1. The machine's tailnet name is `polaris`, so kanji-trainer's URL would read
+   `https://polaris.tail467397.ts.net:8443/`. Renaming the node would change
+   Polaris's URL. Live with the odd name, or rename?
+2. Is phone access an Alexander-only convenience, or a documented feature for
+   the brother too? The second needs the `phone.bat` work and the mobile CSS fix;
+   the first needs neither.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.
