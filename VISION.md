@@ -247,6 +247,117 @@ otherwise.
 
 ---
 
+## V-003 — Phone access: the full option space (raised 2026-07-27) — ANALYSIS ONLY
+
+V-002 assumed Tailscale. This entry steps back: what are *all* the ways to get
+kanji-trainer onto a phone browser, including a hosted login portal with invite
+codes in the style of quir3?
+
+### The question that picks the architecture
+
+Everything downstream depends on one answer: **whose data is on whose machine?**
+
+1. *"I want my own progress on my own phone."* → a transport problem. No accounts.
+2. *"My brother wants his progress on his phone."* → still no accounts — he runs
+   his own copy with his own data. Two independent single-user installs.
+3. *"People I invite sign up, and their progress lives somewhere I run."* → now
+   it is a hosted multi-tenant product, and auth is the smallest part of it.
+
+Only case 3 needs a login portal. Cases 1 and 2 are solved by transport, and
+adding accounts to them buys nothing while adding a credential store to defend.
+
+### The options
+
+| # | Approach | Auth needed | Always-on | Keeps stdlib-only | Cost |
+|---|---|---|---|---|---|
+| A | Tailscale Serve (V-002) | none — the network is the boundary | no, host must be awake | yes | free |
+| B | Cloudflare Tunnel + Cloudflare Access | none written by us; Access does email-OTP at the edge | no, host must be awake | yes | free tier |
+| C | Static PWA — port storage to IndexedDB | none (per-device data) | **yes** | drops the server entirely | free |
+| D | Hosted multi-tenant + quir3-style auth | full portal, invite codes | yes | **no** | hosting + real ongoing work |
+
+**A — Tailscale.** See V-002. Strongest privacy story: nothing leaves the
+machine, nothing is on the internet, no credentials exist to leak.
+
+**B — Cloudflare Tunnel + Access.** Same shape as A but with a real public
+hostname, and Cloudflare Access in front doing email one-time-codes against an
+allow-list. Worth naming explicitly because *the most secure login portal is the
+one you don't write*. An invite becomes "I add your email to the allow-list."
+
+**C — Static PWA.** The most interesting option and the least obvious. This app
+is already ~90% client-side: `app.js` is 2,000 lines of UI and quiz logic, and
+`server.py` only does SQLite persistence, the SM-2 scheduler, and stats
+aggregation — all of it pure logic that runs fine in a browser. Port storage to
+IndexedDB and the whole thing becomes a static site on GitHub Pages: always
+available, no host machine, works offline via a service worker, installs to the
+home screen, costs nothing, and the data still never leaves the user's device.
+The brother's install becomes a URL instead of a Python runtime — which is
+*easier* than what he does today, not harder. Cost: desktop and phone become
+separate stores, so cross-device sync becomes manual (the existing JSON
+export/import already covers it) until someone builds sync.
+
+**D — Hosted multi-tenant.** The quir3 pattern, transplanted. Only worth it for
+case 3 above.
+
+### What was read from quir3 (`~/PycharmProjects/quir3-vocab-dev`, 2026-07-22)
+
+The invite mechanism there is careful and the design is portable:
+
+- `invite_codes` table: `code UNIQUE`, `used`, `used_by`, `used_at`, `revoked`,
+  `created_by`; partial index on unused/unrevoked codes; RLS restricting all
+  access to admins.
+- Public sign-up is **disabled at the auth-service level**. The only path to an
+  account is a server action that validates an invite first — the browser never
+  calls `signUp` directly.
+- The invite is claimed **atomically** by a conditional update
+  (`UPDATE … WHERE code=? AND used=false AND revoked=false RETURNING id`); zero
+  rows means another signup won the race, and the just-created user is deleted
+  to roll back. Race-safe by construction rather than by locking.
+- Per-IP rate limits on login (5/15min), register (5/15min) and invite checks
+  (10/15min), Redis-backed with in-memory fallback that degrades to
+  per-instance limits rather than blocking sign-ins.
+- Password policy (≥10 chars, letter + digit), credentials POST-only via server
+  actions so they never appear in a URL, safe internal redirects.
+
+**All of that ports to stdlib Python.** The table and the atomic conditional
+claim work identically in SQLite; `hashlib.scrypt`/`pbkdf2_hmac` for password
+hashing, `secrets` for codes and session tokens, `hmac.compare_digest` for
+constant-time comparison, `http.cookies` for `HttpOnly; Secure; SameSite=Lax`
+sessions. No pip packages required. The auth is genuinely the easy part.
+
+### The real cost of option D is not auth — it is multi-tenancy
+
+The current schema has **no user column anywhere**: `settings(key PK)`,
+`srs(kanji, facet PK)`, `reviews(id, …)`. It is single-tenant by construction.
+Going hosted means adding `user_id` to every table, to the primary keys, and to
+all ~20 SQL statements in `server.py`, plus export/import, plus every stats
+aggregate. That refactor is larger and riskier than the login portal, and it is
+the part that would quietly leak one user's progress into another's if it were
+done carelessly.
+
+Two more hard requirements if D ever happens:
+
+- **Never serve a login portal over plain HTTP.** `http.server` can do TLS via
+  `ssl`, but certificate management makes a reverse proxy (Cloudflare, Caddy)
+  the sane answer.
+- **Always-on hosting contradicts the project's founding pitch** — "everything
+  runs on your own machine, no accounts, no internet needed." That is currently
+  in the README as a selling point. D does not modify the app; it forks it into
+  a second product with a different promise. Worth deciding deliberately rather
+  than drifting into.
+
+### Recommendation
+
+Case 1 today: **A or B**, an afternoon each. Case 2 for the brother: **C**, and
+it makes his life simpler than the current Python install. Case 3: **D**, as a
+deliberate separate product, and only when there is a reason for other people's
+data to live on Alexander's server.
+
+Nothing here is decided. C is the option most worth a serious look, because it
+is the only one that removes the awake-laptop dependency without taking on
+hosting, accounts, or anyone else's data.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.
