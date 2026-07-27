@@ -83,13 +83,25 @@ function tierOf(k, facet) {
 }
 const TIER_LABEL = ["not started", "learning", "operative", "solid"];
 
+// KANJIDIC2's gloss list isn't purely a list of senses - it mixes in radical
+// names and counter notes. Unfiltered, 一's "second meaning" would be
+// "One Radical (no.1)" and 二's would be "Two Radical (no. 7)", which is not a
+// meaning anyone should be quizzed on. MUST stay in sync with server.py's
+// JUNK_GLOSS, which decides how many senses a kanji can unlock.
+const JUNK_GLOSS = /\bradical\b|^counter for\b|\(no\.\s*\d+\)|\bkokuji\b/i;
+
+/** A kanji's teachable senses, most common first. Memoised on the row. */
+function senses(row) {
+  if (!row.__senses) row.__senses = (row.meanings || []).filter((m) => !JUNK_GLOSS.test(m));
+  return row.__senses;
+}
 /** The meaning this card is actually asking for. */
 function senseText(row, facet) {
-  return row.meanings[SENSE_INDEX[facet] ?? 0];
+  return senses(row)[SENSE_INDEX[facet] ?? 0];
 }
 /** Senses the learner has already been taught for this kanji, in order. */
 function knownSenses(row, upto) {
-  return row.meanings.slice(0, upto).filter(Boolean);
+  return senses(row).slice(0, upto).filter(Boolean);
 }
 
 // ---------------------------------------------------------------- reading aloud
@@ -230,7 +242,7 @@ function gradeMeaning(input, row, facet) {
   const idx = SENSE_INDEX[facet] ?? 0;
   const inp = normMeaning(input);
   if (!inp) return { ok: false };
-  if (glossMatches(inp, row.meanings[idx])) return { ok: true };
+  if (glossMatches(inp, senses(row)[idx])) return { ok: true };
   const j = row.meanings.findIndex((m, i) => i !== idx && glossMatches(inp, m));
   if (j >= 0) return { ok: !S.settings.strict_primary, other: row.meanings[j] };
   return { ok: false };
@@ -262,7 +274,7 @@ function pickMeaningDistractors(target, n) {
   const used = new Set(target.meanings.map((m) => m.toLowerCase()));
   const out = [];
   for (const r of shuffle(distractorPool(target))) {
-    const m = r.meanings[0];
+    const m = senses(r)[0];
     if (!m || used.has(m.toLowerCase())) continue;
     used.add(m.toLowerCase()); out.push(m);
     if (out.length === n) break;
@@ -318,7 +330,7 @@ function buildQuestion(item) {
   }
   const q = { item, row, mode, facet, senseIdx: SENSE_INDEX[facet] ?? 0 };
   if (mode === "mc-meaning") {
-    q.answer = senseText(row, facet) || row.meanings[0];
+    q.answer = senseText(row, facet) || senses(row)[0];
     q.choices = shuffle([q.answer, ...pickMeaningDistractors(row, 3)]);
   } else if (mode === "mc-kanji") {
     q.answer = row.k;
@@ -718,7 +730,7 @@ function kanjiModal(k) {
       <span class="tier-meta">${s.reps} reps · ${s.lapses} lapses · ${when}</span>`;
   };
   const taught = sensesTaught(k);
-  const locked = r.meanings.length - taught;
+  const locked = senses(r).length - taught;
   openModal(`
     <button class="modal-close" onclick="document.getElementById('modal-root').innerHTML=''">✕</button>
     <div class="big-kanji">${r.k}</div>
@@ -823,7 +835,7 @@ function advanceOn(sess, btnId) {
 // its most common meaning, and how you'd say it out loud.
 function introCard(sess, item) {
   const r = S.byChar[item.k];
-  const extra = r.meanings.length - 1;
+  const extra = senses(r).length - 1;
   setMain(`
     <div class="quiz-wrap">
       ${sessionHeader(sess)}
@@ -832,7 +844,7 @@ function introCard(sess, item) {
         <div class="q-prompt-kanji">${r.k}</div>
         <div class="headline-pair">
           <div class="hp-cell"><span class="hp-label">Most common meaning</span>
-            <span class="hp-value">${esc(r.meanings[0] || "—")}</span></div>
+            <span class="hp-value">${esc(senses(r)[0] || "—")}</span></div>
           <div class="hp-cell"><span class="hp-label">Read aloud on its own</span>
             <span class="hp-value jp">${readingLine(r)}</span></div>
         </div>
@@ -843,7 +855,7 @@ function introCard(sess, item) {
             <dt>Rank</dt><dd>#${r.freq || "—"} most frequent</dd>
           </dl>
           ${extra > 0 ? `<p class="later-note">${extra} further meaning${extra === 1 ? "" : "s"}
-            (${esc(r.meanings.slice(1, 4).join(", "))}${r.meanings.length > 4 ? ", …" : ""})
+            (${esc(senses(r).slice(1, 4).join(", "))}${senses(r).length > 4 ? ", …" : ""})
             — you'll meet ${extra === 1 ? "it" : "them"} once this one sticks.</p>` : ""}
         </div>
         <button class="primary-btn" id="cont">Got it →</button>
@@ -864,11 +876,11 @@ function senseIntroCard(sess, item) {
       <div class="quiz-card intro-card">
         <div class="q-kind">A new meaning for a kanji you know</div>
         <div class="q-prompt-kanji">${r.k}</div>
-        <p class="sense-why">You've got “<b>${esc(r.meanings[0])}</b>” down.
+        <p class="sense-why">You've got “<b>${esc(senses(r)[0])}</b>” down.
           ${r.k} also carries a ${SENSE_ORDINAL[idx]} meaning:</p>
         <div class="headline-pair">
           <div class="hp-cell wide"><span class="hp-label">${SENSE_ORDINAL[idx]} meaning</span>
-            <span class="hp-value">${esc(r.meanings[idx] || "—")}</span></div>
+            <span class="hp-value">${esc(senses(r)[idx] || "—")}</span></div>
         </div>
         ${senseLadder(r, idx + 1)}
         <button class="primary-btn" id="cont" style="margin-top:16px">Got it →</button>
@@ -916,7 +928,7 @@ function quizCard(sess, item) {
          It has another meaning.</div>` : "";
   let inner = "";
   if (q.mode === "mc-kanji") {
-    inner = `<div class="q-prompt-text">${esc(q.row.meanings[0])}</div>
+    inner = `<div class="q-prompt-text">${esc(senses(q.row)[0])}</div>
       <div class="choices">${q.choices.map((c, i) => `<button class="choice jp" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${c}</button>`).join("")}</div>`;
   } else if (q.mode === "mc-meaning" || q.mode === "mc-reading") {
     const jp = q.mode === "mc-reading" ? "jp" : "";
@@ -999,8 +1011,8 @@ function readingLine(row) {
 
 /** Numbered senses; the ones past `upto` are shown dimmed as "coming later". */
 function senseLadder(row, upto) {
-  if (!row.meanings.length) return "—";
-  return `<div class="sense-ladder">${row.meanings.map((m, i) =>
+  if (!senses(row).length) return "—";
+  return `<div class="sense-ladder">${senses(row).map((m, i) =>
     `<span class="sense-chip ${i < upto ? "on" : ""}"><i>${i + 1}</i>${esc(m)}</span>`
   ).join("")}</div>`;
 }
@@ -1142,7 +1154,7 @@ function matchGame(kind, opts = {}) {
   const title = opts.title || (kind === "reading" ? "Reading pairs" : "Match pairs");
   const tiles = shuffle([
     ...pool.map((r) => ({ id: r.k, kind: "k", text: r.k })),
-    ...pool.map((r) => ({ id: r.k, kind: "m", text: kind === "reading" ? primaryReading(r) : r.meanings[0] })),
+    ...pool.map((r) => ({ id: r.k, kind: "m", text: kind === "reading" ? primaryReading(r) : senses(r)[0] })),
   ]);
   const t0 = Date.now();
   let solved = 0, misses = 0, sel = null;
@@ -1186,7 +1198,7 @@ function memoryGame() {
   const pool = shuffle(activePool()).slice(0, 6);
   const tiles = shuffle([
     ...pool.map((r) => ({ id: r.k, kind: "k", text: r.k })),
-    ...pool.map((r) => ({ id: r.k, kind: "m", text: r.meanings[0] })),
+    ...pool.map((r) => ({ id: r.k, kind: "m", text: senses(r)[0] })),
   ]);
   let first = null, lock = false, flips = 0, solved = 0;
   setMain(`
@@ -1287,7 +1299,7 @@ function oddOneOutGame() {
       $("#odd-fb").innerHTML = `
         <div class="verdict ${ok ? "ok" : "no"}">${ok ? "Correct!" : "Not quite"}</div>
         <div class="detail"><span class="jp">${r.trio.map((t) => t.k).join("・")}</span> are all read <span class="jp">${r.reading}</span>.
-          The odd one was <span class="jp">${oddRow.k}</span> (${esc(oddRow.meanings[0])}), read <span class="jp">${oddOn.join("・") || primaryReading(oddRow) || "—"}</span>.</div>`;
+          The odd one was <span class="jp">${oddRow.k}</span> (${esc(senses(oddRow)[0])}), read <span class="jp">${oddOn.join("・") || primaryReading(oddRow) || "—"}</span>.</div>`;
       round++;
       setTimeout(ask, 1900);
     };
@@ -1311,7 +1323,7 @@ function snapGame() {
     if (!alive || !document.getElementById("snap-box")) return;
     const row = pick(pool);
     const truth = Math.random() < 0.5;
-    const shown = truth ? pick(row.meanings) : (pickMeaningDistractors(row, 1)[0] || row.meanings[0]);
+    const shown = truth ? pick(senses(row)) : (pickMeaningDistractors(row, 1)[0] || senses(row)[0]);
     const isMatch = truth || row.meanings.some((m) => m.toLowerCase() === shown.toLowerCase());
     $("#snap-box").innerHTML = `
       <div class="q-prompt-kanji" style="font-size:76px">${row.k}</div>
@@ -1376,7 +1388,7 @@ function survivalGame() {
   const hearts = () => "♥".repeat(lives) + "♡".repeat(3 - lives);
   const ask = () => {
     if (!document.getElementById("sv-box")) return;
-    while (idx < S.kanji.length && !S.kanji[idx].meanings.length) idx++;
+    while (idx < S.kanji.length && !senses(S.kanji[idx]).length) idx++;
     if (idx >= S.kanji.length) return end();
     const row = S.kanji[idx];
     const facet = primaryReading(row) && Math.random() < 0.4 ? "reading" : "meaning";
@@ -1386,7 +1398,7 @@ function survivalGame() {
       choices = shuffle([answer, ...pickReadingDistractors(row, 3)]);
       jp = "jp";
     } else {
-      answer = row.meanings[0];
+      answer = senses(row)[0];
       choices = shuffle([answer, ...pickMeaningDistractors(row, 3)]);
       jp = "";
     }
@@ -1445,7 +1457,7 @@ function lightningGame() {
   const ask = () => {
     if (!alive) return;
     const row = pick(pool);
-    const answer = row.meanings[0];
+    const answer = senses(row)[0];
     const choices = shuffle([answer, ...pickMeaningDistractors(row, 3)]);
     $("#lq").innerHTML = `
       <div class="q-prompt-kanji">${row.k}</div>
@@ -1640,7 +1652,7 @@ function hordeGame() {
     if (over || !document.getElementById("horde-q")) return;
     const row = pick(pool);
     const facet = primaryReading(row) && Math.random() < 0.4 ? "reading" : "meaning";
-    const answer = facet === "reading" ? primaryReading(row) : row.meanings[0];
+    const answer = facet === "reading" ? primaryReading(row) : senses(row)[0];
     const distractors = facet === "reading" ? pickReadingDistractors(row, 3) : pickMeaningDistractors(row, 3);
     const choices = shuffle([answer, ...distractors]);
     const jp = facet === "reading" ? "jp" : "";
@@ -1937,7 +1949,7 @@ function pathLearn(node) {
           <div class="q-prompt-kanji">${r.k}</div>
           <div class="headline-pair">
             <div class="hp-cell"><span class="hp-label">Most common meaning</span>
-              <span class="hp-value">${esc(r.meanings[0] || "—")}</span></div>
+              <span class="hp-value">${esc(senses(r)[0] || "—")}</span></div>
             <div class="hp-cell"><span class="hp-label">Read aloud on its own</span>
               <span class="hp-value jp">${readingLine(r)}</span></div>
           </div>
@@ -1947,8 +1959,8 @@ function pathLearn(node) {
               <dt>Kun</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
               <dt>Rank</dt><dd>#${r.freq || "—"} by frequency</dd>
             </dl>
-            ${r.meanings.length > 1 ? `<p class="later-note">${r.meanings.length - 1} further
-              meaning${r.meanings.length === 2 ? "" : "s"} — they come back later, once this one sticks.</p>` : ""}
+            ${senses(r).length > 1 ? `<p class="later-note">${senses(r).length - 1} further
+              meaning${senses(r).length === 2 ? "" : "s"} — they come back later, once this one sticks.</p>` : ""}
           </div>
           <button class="primary-btn" id="p-next">${i === node.chars.length - 1 ? "Finish" : "Got it →"}</button>
           <div class="continue-hint">Enter ↵</div>
@@ -2005,7 +2017,7 @@ function pathQuiz(node, boss) {
     if (!document.getElementById("pq-box")) return;
     if (i >= questions.length) return finish();
     const { r, facet } = questions[i];
-    const answer = facet === "reading" ? primaryReading(r) : r.meanings[0];
+    const answer = facet === "reading" ? primaryReading(r) : senses(r)[0];
     const distractors = facet === "reading" ? pickReadingDistractors(r, 3) : pickMeaningDistractors(r, 3);
     const choices = shuffle([answer, ...distractors]);
     const jp = facet === "reading" ? "jp" : "";
@@ -2417,18 +2429,22 @@ routes.settings = async () => {
         <label>Extra meanings per day</label>${sel("sense_per_day", [0, 2, 4, 8, 15], s.sense_per_day)}
         <label>Grade the primary meaning strictly</label>
         <select id="set-strict_primary">
+          <option value="0" ${s.strict_primary ? "" : "selected"}>No — any real meaning counts (recommended)</option>
           <option value="1" ${s.strict_primary ? "selected" : ""}>Yes — only the most common sense</option>
-          <option value="0" ${s.strict_primary ? "" : "selected"}>No — any real meaning counts</option>
         </select>
       </div>
       <p class="settings-note">A kanji's second and third meanings unlock on their own once
         you can recall the first after a week away, then arrive as review rather than as new
         material. <b>Extra meanings per day</b> caps how fast they arrive; it has its own
         budget so deepening never eats into new kanji. Set it to 0 to pause it entirely.</p>
-      <p class="settings-note">With strict grading on, typing “Sun” for 日 is marked wrong and
-        the app tells you why: that card is for its most common sense, “Day”. That strictness
-        is what makes “I know this kanji” mean something. Turn it off if you'd rather any
-        correct meaning counted.</p>
+      <p class="settings-note">Either way, a typed meaning card <b>always tells you the most
+        common sense</b>: answer 日 with “Sun” and you're told that Day is the primary one.
+        The setting only decides whether the answer is also marked <i>wrong</i>.</p>
+      <p class="settings-note">It's off by default because the meaning lists mix genuinely
+        different senses (月 = Month, Moon) with near-synonyms (大 = Large, Big; 中 = In,
+        Inside, Middle). Strict grading would mark “big” wrong for 大, which teaches you
+        nothing except to distrust the app. Turn it on if you want the primary sense to be
+        the only accepted answer and you don't mind that.</p>
       <p class="settings-note">Reading cards ask how you'd say a kanji <b>on its own</b> —
         what you'd read off a sign. Those readings are curated in
         <code>data/spoken.json</code>, which you can edit; the app still accepts the kanji's

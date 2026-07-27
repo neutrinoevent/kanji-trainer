@@ -10,6 +10,7 @@ Usage:  python server.py [port]     (default port 7777)
 
 import json
 import os
+import re
 import sqlite3
 import sys
 import threading
@@ -32,7 +33,11 @@ DEFAULT_SETTINGS = {
     "tour_done": False,
     "path": {},          # learning-path progress: node id -> stars (1-3)
     "sense_per_day": 4,  # extra meanings unlocked per day (own budget, see below)
-    "strict_primary": True,   # a 'meaning' card wants the *most common* sense
+    # Off by default: KANJIDIC2's gloss list mixes genuine alternate senses
+    # (月 Month/Moon) with near-synonyms (大 Large/Big, 中 In/Inside), so marking
+    # "big" wrong for 大 would be a false negative. The feedback names the primary
+    # sense either way; turn this on to have only that sense count.
+    "strict_primary": False,
     "goals": [],         # user-declared fluency goals; see /api/goals
 }
 
@@ -41,7 +46,16 @@ DEFAULT_SETTINGS = {
 with open(DATA_FILE, encoding="utf-8") as f:
     KANJI_LIST = json.load(f)
 KANJI_INDEX = {row["k"]: i for i, row in enumerate(KANJI_LIST)}
-MEANING_COUNT = {row["k"]: len(row.get("meanings") or []) for row in KANJI_LIST}
+
+# KANJIDIC2's gloss list mixes real senses with radical names and counter notes.
+# Left in, 一's "second meaning" would be "One Radical (no.1)" and 二's would be
+# "Two Radical (no. 7)" - not meanings anyone should be quizzed on. This decides
+# how many senses a kanji can unlock, so it MUST stay in sync with the identical
+# JUNK_GLOSS regex in static/app.js.
+JUNK_GLOSS = re.compile(r"\bradical\b|^counter for\b|\(no\.\s*\d+\)|\bkokuji\b", re.I)
+SENSES = {row["k"]: [m for m in (row.get("meanings") or []) if not JUNK_GLOSS.search(m)]
+          for row in KANJI_LIST}
+MEANING_COUNT = {k: len(v) for k, v in SENSES.items()}
 
 # Collections are alternative orderings/subsets of the same master list. A kanji
 # that appears in several collections still has exactly one SRS record per facet
@@ -248,7 +262,7 @@ def teachable(kanji, facet):
         return False
     row = KANJI_LIST[i]
     if facet in SENSE_MEANING_INDEX:
-        return len(row.get("meanings") or []) > SENSE_MEANING_INDEX[facet]
+        return MEANING_COUNT.get(kanji, 0) > SENSE_MEANING_INDEX[facet]
     return bool(row.get("on") or row.get("kun"))
 
 

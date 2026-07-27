@@ -25,8 +25,12 @@ For any set you pick — say the first batch of Grade 1 — the app treats "I kn
 this kanji" as four specific things, in the order you climb them:
 
 1. **You recognise it** on sight.
-2. **You know its most common meaning** — that one specifically. A meaning card
-   is graded against the primary sense, so passing it means something.
+2. **You know its most common meaning** — that one specifically. Answer a
+   meaning card with a real but secondary sense and the app accepts it *and*
+   tells you which sense ranks first, so the ranking gets taught either way.
+   (There's a setting to make only the primary sense count; it's off by default
+   because the underlying meaning lists mix distinct senses like 月 Month/Moon
+   with plain synonyms like 大 Large/Big.)
 3. **You can read it aloud** the way a Japanese reader would say it seeing the
    bare character on a sign or a book cover. That is often *not* the first
    reading in the dictionary: 日 alone is ひ, not にち.
@@ -53,7 +57,8 @@ everything else in the app.
   unlocks on its own and turns up as a review of a kanji you already know.
   Extra meanings have their own daily budget so depth never crowds out new
   kanji, and typing a real-but-secondary meaning tells you exactly that instead
-  of just "wrong".
+  of just "wrong". Radical names and counter notes ("One Radical (no.1)") are
+  filtered out, so they never turn up as a "meaning" to learn.
 - **Reading aloud, not reading recital.** Reading cards ask what you'd *say*
   looking at the bare character. Those readings are curated in
   `data/spoken.json` (editable — see below), labelled 音読み or 訓読み, and the

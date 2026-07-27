@@ -69,13 +69,40 @@ material. This is the algorithmic core of the entry.
 with brand-new kanji for `new_per_day`, deepening would stall widening (or vice
 versa). `sense_per_day` (default 4) is separate and independently tunable.
 
-**D3 — The primary-meaning card grades strictly, and explains itself.** Typing
-a *real but non-primary* meaning on a `meaning` card is marked wrong, with
-feedback that names what happened: "「Sun」 is a meaning of 日, but this card
-tests its most common sense: Day. You'll meet 「Sun」 later." Strictness is what
-makes rung 2 real, and the explanation is what keeps it from feeling arbitrary.
-Toggle: `strict_primary` (default on) — a real pedagogical judgment call, so it
-is a setting rather than a one-way door.
+**D3 — The primary-meaning card names the primary sense every time.** Typing a
+*real but non-primary* meaning on a `meaning` card produces feedback that says
+what happened: "「Sun」 is a meaning of 日, but this card tests its most common
+sense: Day. You'll meet 「Sun」 later." Whether that also counts as *wrong* is
+the `strict_primary` toggle.
+
+> **D3 revised, same day — default flipped to off.** The original decision had
+> strict grading on by default, on the reasoning that rung 2 isn't real unless
+> it's enforced. Checking the actual gloss lists before shipping killed that.
+> KANJIDIC2's meanings are not a ranked list of distinct senses; they mix:
+>
+> - genuinely different senses — 月 Month/Moon, 日 Day/Sun/Japan
+> - near-synonyms — 大 Large/**Big**, 中 In/**Inside**/Middle, 出 Exit/**Leave**/Go Out
+> - metadata that isn't a meaning at all — 一 "One Radical (no.1)", 年 "Counter For Years"
+>
+> Strict grading would mark "big" wrong for 大. That teaches nothing except to
+> distrust the app, and it is exactly the beginner range where it bites hardest
+> (61% of Grade 1 kanji have a second gloss). Enforcement isn't worth false
+> negatives on answers that are plainly correct. The nudge alone still teaches
+> the ranking — the learner is told the primary sense on every such answer —
+> and `strict_primary` is there for anyone who wants the harder bar.
+>
+> Turning strictness back on as the default is reasonable *once* there is
+> curated sense data. See the backlog.
+
+**D3b — Non-sense glosses are filtered out entirely.** The metadata category
+above is junk in every context, not just under strict grading: unfiltered, the
+sense ladder would unlock "One Radical (no.1)" as the second *meaning* of 一,
+and quiz distractors would offer "Counter For Occurrences" as a plausible
+answer. A shared regex (`JUNK_GLOSS`, duplicated in `server.py` and `app.js` —
+they must stay in sync, since the server decides how many senses can unlock)
+drops glosses matching radical names, counter notes, and `(no. N)` markers.
+That's 121 of 10,248 glosses, and it cleans up 一, 二, 八, 年 in the first
+batches.
 
 **D4 — "Reading aloud" is a curated target, not a heuristic guess.**
 `data/spoken.json` maps a kanji to the reading a Japanese person would most
@@ -138,8 +165,10 @@ Two things found while building it, fixed in the same pass:
   with a plan for both.
 - **No sense data beyond KANJIDIC2's ordering.** The "most common meaning" is
   KANJIDIC2's first gloss. That ordering is good but not a frequency-of-sense
-  corpus. Where it is wrong, it is wrong. A curated override file for senses
-  (mirroring `spoken.json`) is the obvious fix if this proves annoying.
+  corpus, and as D3-revised found, the list isn't even a list of *distinct*
+  senses. A curated sense file mirroring `spoken.json` — grouping synonyms and
+  ranking real senses — is now the clear next step rather than a maybe, since
+  it is the thing that would let strict grading default back on.
 
 ---
 
@@ -152,14 +181,16 @@ Carried over from earlier sessions and this audit. Not commitments.
   companion to V-001's D4, since it shows *why* the reading changes).
 - Visually-similar distractors (士/土, 未/末) instead of frequency-neighbour ones.
 - Radical/component quiz mode.
-- Sense-override file, mirroring `spoken.json`, if KANJIDIC2 gloss order proves
-  misleading in practice.
+- **Curated sense file**, mirroring `spoken.json` — group synonyms (大 Large =
+  Big) and rank genuinely distinct senses. Promoted from "if it proves annoying"
+  to a known need by D3-revised; it is the prerequisite for strict grading.
 - Compound-reading drill: given 日本, is 日 read にち, じつ, or ひ?
 
 ## Open questions for the owner
 
-1. Is `strict_primary` the right default? It is the honest reading of V-001 but
-   it will feel harsh the first time it marks a correct-but-secondary answer wrong.
+1. `strict_primary` now defaults **off** (see D3 revised). The nudge still names
+   the primary sense on every secondary answer, so the ranking is taught either
+   way. Worth revisiting once curated sense data exists.
 2. Should a goal's deadline ever *change the scheduler* (push more cards to hit
    the date), or only report pace? Currently it only reports — the SRS stays
    pedagogically honest and the user adjusts `new_per_day` themselves.
@@ -170,7 +201,10 @@ Carried over from earlier sessions and this audit. Not commitments.
 
 ## Change log
 
-- **2026-07-27** — V-001 raised and implemented. Baseline preserved as git tag
+- **2026-07-27** — V-001 raised and implemented. D3 revised the same day
+  (strict grading default flipped off) after checking the real gloss data;
+  D3b added to filter non-sense glosses. Merged to `main`; pre-merge `main`
+  preserved as branch `v1.0-main-snapshot`. Baseline preserved as git tag
   `v1.0-baseline` and as a standalone copy at
   `../kanji-trainer-ARCHIVE-v1.0-20260727/`. Work done on branch
   `fluency-and-senses`.
