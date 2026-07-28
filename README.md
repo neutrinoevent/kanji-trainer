@@ -102,6 +102,12 @@ everything else in the app.
   にち). Question type adapts to how well you know the card. Second-meaning
   cards skip the reverse question, since several kanji can carry the same
   secondary sense.
+- **Games follow the set you're studying.** Pick a set on the Games page — a
+  goal, a track, a single batch, or everything — and a game only ever asks about
+  kanji from it. Nothing is silently substituted: if a set is too small for a
+  game, it says so and offers to widen rather than quietly pulling in characters
+  you've never seen. The general, everything-in-rotation modes are all still
+  there.
 - **Games.** Eight of them: Match Pairs and Reading Pairs (beat the clock),
   Memory Flip (face-down concentration), Odd One Out (three kanji share an
   on-reading, find the impostor), Snap Judgment (45 seconds of true or false),

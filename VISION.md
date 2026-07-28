@@ -711,6 +711,79 @@ progress are not in tension; conflating them was the mistake.
 
 ---
 
+## V-008 — Games follow the set you're studying (raised 2026-07-27)
+
+### The report
+
+After a jōyō batch-1 session the learner accepted the app's own invitation to
+try a game, reasonably expecting it to cover batch 1, and was immediately shown
+plenty of kanji from outside it.
+
+### Two causes, and one of them was self-inflicted
+
+**1. `activePool()` was global — with a silent fallback.**
+
+```js
+const pool = S.kanji.filter((r) => kanjiStarted(r.k));
+return pool.length >= 8 ? pool : S.kanji.slice(0, 50);   // <- silently substitutes
+```
+
+Every game drew from every started kanji, and if the learner had started fewer
+than eight, it quietly substituted the top fifty by frequency — characters they
+had never seen. A silent widening like that is worse than an empty game: the
+learner cannot tell it happened, and concludes the app is confused about what
+they're studying.
+
+**2. The invitation itself was unscoped.** The "Keep going, differently"
+suggestions added in V-006 linked to `#/games/odd`, `#/games/match` and
+`#/games/horde` with no scope at all. The app finished a scoped session and then
+handed out global links — this session created the exact path the learner fell
+down. Worth recording plainly: adding a feature (scoped review) without auditing
+every route into the adjacent feature (games) left a seam right where a learner
+would walk.
+
+### Design decisions
+
+**D1 — Scope rides in the hash, as it does for review.**
+`#/games/<id>/c/<cid>/<from>-<to>`, or `/all`. Quit, Done and Play-again all
+keep the set. Same `parseScope`/`scopeSuffix` vocabulary as review, so the two
+features stay one idea rather than two.
+
+**D2 — A bare `#/games/<id>` inherits the set you were last studying.** That is
+what "try a game" immediately after a batch session obviously means, and it is
+what fixes the reported path even for links that carry no scope.
+
+**D3 — No silent widening, ever.** `gamePool()` has no fallback. When a set is
+too thin for a game, the game says so, names the number it needs, and offers
+three real choices — play with everything, choose another set, or add more
+kanji. The hub also dims and annotates a game *before* it's clicked.
+
+**D4 — Some games honestly need a wide net, and should say so rather than
+pretend.** Odd One Out has to find three kanji sharing an on-reading; a
+twenty-five kanji batch almost never contains such a trio. It declines a narrow
+scope with the reason, rather than quietly reaching outside the set — which is
+what the old code did.
+
+**D5 — The general modes are retained unchanged.** This was explicit in the
+request. Unscoped Survival still marches down the whole frequency list and
+deliberately runs past what you know, because that is the game. Scoped, it
+marches down that set instead, still in frequency order.
+
+**D6 — Pick the set before the game, not after.** The hub leads with a chip row
+of candidate sets — everything, each goal, each set in progress, and its started
+batches — each showing how many kanji it would actually supply. The choice
+persists, shared with the review hub via `review_scope`.
+
+### Verified
+
+Every one of the eight games, scoped to Grade 1 batch 1 with twenty unrelated
+kanji also in rotation: **zero out-of-batch kanji shown**. Odd One Out declines
+with its reason. All eight still play unscoped. A bare `#/games/lightning`
+inherits "Grade 1 · Batch 1", and the end-of-session suggestions now carry the
+scope they came from.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.

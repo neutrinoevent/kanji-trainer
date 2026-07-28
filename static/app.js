@@ -43,6 +43,49 @@ function activePool() {
   const pool = S.kanji.filter((r) => kanjiStarted(r.k));
   return pool.length >= 8 ? pool : S.kanji.slice(0, 50);
 }
+
+/**
+ * The kanji a game may ask about, limited to a scope.
+ *
+ * Deliberately has no silent fallback. `activePool()` quietly substituted the
+ * top 50 frequency kanji whenever the learner's own pool was small, which is
+ * how someone who had studied one batch ended up being quizzed on characters
+ * they had never seen. If a scope is too thin for a game, the game says so.
+ */
+function gamePool(sc) {
+  const chars = scopeChars(sc);
+  const set = chars ? new Set(chars) : null;
+  return S.kanji.filter((r) => kanjiStarted(r.k) && (!set || set.has(r.k)));
+}
+
+function gameScopeBar(sc) {
+  return `<div class="game-scope">Playing: <b>${esc(scopeLabel(sc))}</b>
+    <button class="ghost-btn sm" onclick="location.hash='#/games'">change set</button></div>`;
+}
+
+/** Renders an explanation instead of the game when a scope can't support it. */
+function tooFewForGame(sc, pool, need, title, why) {
+  if (pool.length >= need) return false;
+  const total = (scopeChars(sc) || []).length;
+  setMain(`
+    <h1>${esc(title)}</h1>
+    <div class="card" style="text-align:center;padding:38px 22px">
+      <h2 style="margin-top:0">Not enough kanji in this set yet</h2>
+      <p class="sub">${esc(title)} needs at least <b>${need}</b> kanji you've started.
+        <b>${esc(scopeLabel(sc))}</b> currently gives ${pool.length}${
+          total ? ` of ${total}` : ""}.${why ? " " + why : ""}</p>
+      <div class="row" style="justify-content:center">
+        <button class="primary-btn" id="wider">Play with everything instead</button>
+        <button class="ghost-btn" onclick="location.hash='#/games'">Choose another set</button>
+        <button class="ghost-btn" onclick="location.hash='#/study'">Add more kanji</button>
+      </div>
+    </div>`);
+  const w = $("#wider");
+  if (w) w.onclick = () => { location.hash = gameHash(S.lastGameId || "match", null); };
+  return true;
+}
+
+const gameHash = (id, sc) => `#/games/${id}/${scopeSuffix(sc)}`;
 const GROUPS = ["Frequency", "School grades", "JLPT", "Names"];
 async function loadCollections() {
   S.collections = await api("/api/collections");
@@ -1507,9 +1550,10 @@ async function sessionDone(sess) {
   // Vary the suggested next step so the loop doesn't feel like one button.
   const ideas = [
     { h: scopeHash(sess.scope, "drill"), t: "🎯 Drill this set", why: "same kanji, no schedule pressure" },
-    { h: "#/games/odd", t: "🕵️ Odd one out", why: "readings, from a different angle" },
-    { h: "#/games/match", t: "🀄 Match pairs", why: "against the clock" },
-    { h: "#/games/horde", t: "🧟 Kanji horde", why: "if you'd rather it fought back" },
+    { h: gameHash("match", sess.scope), t: "🀄 Match pairs", why: "same set, against the clock" },
+    { h: gameHash("horde", sess.scope), t: "🧟 Kanji horde", why: "same set, if you'd rather it fought back" },
+    { h: gameHash("lightning", sess.scope), t: "⚡ Lightning round", why: "same set, 60 seconds" },
+    { h: "#/games", t: "🎯 Pick another game", why: "and choose the set" },
     { h: "#/path", t: "🗺️ The path", why: "meet a few new ones" },
   ];
   const picks = shuffle(ideas).slice(0, 3);
@@ -1565,39 +1609,112 @@ async function sessionDone(sess) {
 // ================================================================ games
 
 const GAME_LAUNCHERS = {
-  match: () => matchGame("meaning"),
-  reading: () => matchGame("reading"),
-  memory: () => memoryGame(),
-  odd: () => oddOneOutGame(),
-  snap: () => snapGame(),
-  lightning: () => lightningGame(),
-  survival: () => survivalGame(),
-  horde: () => hordeGame(),
+  match: (sc) => matchGame("meaning", { scope: sc }),
+  reading: (sc) => matchGame("reading", { scope: sc }),
+  memory: (sc) => memoryGame(sc),
+  odd: (sc) => oddOneOutGame(sc),
+  snap: (sc) => snapGame(sc),
+  lightning: (sc) => lightningGame(sc),
+  survival: (sc) => survivalGame(sc),
+  horde: (sc) => hordeGame(sc),
 };
+const GAME_TITLES = {
+  match: "Match pairs", reading: "Reading pairs", memory: "Memory flip",
+  odd: "Odd one out", snap: "Snap judgment", lightning: "Lightning round",
+  survival: "Survival", horde: "Kanji horde",
+};
+
+const GAME_CARDS = [
+  ["match", "🀄 Match pairs", "Match kanji to meanings against the clock. 6 pairs per round.", 6],
+  ["reading", "🔊 Reading pairs", "Same idea, but match each kanji to one of its readings.", 6],
+  ["memory", "🎴 Memory flip", "Twelve face-down cards. Find the kanji and meaning pairs from memory.", 6],
+  ["odd", "🕵️ Odd one out", "Three of the four kanji share an on-reading. Find the one that sounds different.", 40],
+  ["snap", "👍 Snap judgment", "45 seconds of true or false: does this meaning belong to this kanji?", 4],
+  ["lightning", "⚡ Lightning round", "60 seconds. As many correct answers as you can. Streaks count.", 4],
+  ["survival", "❤️ Survival", "Three lives, no timer. Questions get harder as you go.", 4],
+  ["horde", "🧟 Kanji horde", "Zombies shamble toward your gate. Each correct answer cuts down the closest one.", 4],
+];
 
 routes.games = async (arg) => {
   await loadState();
-  // each game lives at #/games/<id> so Quit/Done (hash back to #/games) always works
-  if (arg && GAME_LAUNCHERS[arg]) return GAME_LAUNCHERS[arg]();
+  await loadCollections();
+  // #/games/<id>[/all | /c/<cid>[/<from>-<to>]] — the scope rides in the hash so
+  // Quit/Done and Play-again keep the set the learner chose.
+  const parts = (arg || "").split("/").filter(Boolean);
+  const id = parts[0];
+  if (id && GAME_LAUNCHERS[id]) {
+    S.lastGameId = id;
+    // A bare #/games/<id> inherits the set they were last studying, which is
+    // what "try a game" right after a batch session should obviously mean.
+    const rest = parts.slice(1).join("/");
+    const sc = rest ? (rest === "all" ? null : parseScope(rest))
+                    : parseScope(S.settings.review_scope || "all");
+    return GAME_LAUNCHERS[id](sc);
+  }
+
+  const sc = parseScope(S.settings.review_scope || "all");
+  const pool = gamePool(sc);
+  const allPool = gamePool(null);
+  const opts = [{ sc: null, label: "Everything in rotation", n: allPool.length }];
+  const seen = new Set(["all"]);
+  for (const g of (S.settings.goals || [])) {
+    const gs = goalScope(g);
+    if (S.colById?.[g.collection] && !seen.has(scopeSuffix(gs))) {
+      seen.add(scopeSuffix(gs));
+      opts.push({ sc: gs, label: "Goal · " + scopeLabel(gs), n: gamePool(gs).length });
+    }
+  }
+  const act = activeScopes(false);
+  for (const a of act.list) {
+    for (const cand of [{ cid: a.col.id, from: null, to: null },
+                        ...a.batches.slice(0, 4).map((b) => ({ cid: a.col.id, from: b.index, to: b.index }))]) {
+      if (seen.has(scopeSuffix(cand))) continue;
+      seen.add(scopeSuffix(cand));
+      opts.push({ sc: cand, label: scopeLabel(cand), n: gamePool(cand).length });
+    }
+  }
+  const cur = scopeSuffix(sc);
+
   setMain(`
     <h1>Games</h1>
-    <p class="sub">Extra practice with the kanji you've started. Games don't affect your review schedule, but results count in your stats.</p>
+    <p class="sub">Extra practice. Games don't affect your review schedule, but results
+      count in your stats. Pick the set first — a game only ever asks about kanji from it.</p>
+
+    <div class="card">
+      <div class="chart-title">Which kanji?</div>
+      <div class="chart-sub">Currently: <b>${esc(scopeLabel(sc))}</b> — ${pool.length} kanji you've started.</div>
+      <div class="scope-chips">
+        ${opts.map((o) => `<button class="chip ${scopeSuffix(o.sc) === cur ? "on" : ""}"
+            data-scope="${scopeSuffix(o.sc)}">${esc(o.label)}
+            <span class="chip-n">${o.n}</span></button>`).join("")}
+      </div>
+    </div>
+
     <div class="game-cards">
-      <div class="game-card" id="g-match"><h3>🀄 Match pairs</h3><p>Match kanji to meanings against the clock. 6 pairs per round.</p></div>
-      <div class="game-card" id="g-match-r"><h3>🔊 Reading pairs</h3><p>Same idea, but match each kanji to one of its readings.</p></div>
-      <div class="game-card" id="g-memory"><h3>🎴 Memory flip</h3><p>Twelve face-down cards. Find the kanji and meaning pairs from memory.</p></div>
-      <div class="game-card" id="g-odd"><h3>🕵️ Odd one out</h3><p>Three of the four kanji are pronounced with the same on-reading. Find the one that sounds different.</p></div>
-      <div class="game-card" id="g-snap"><h3>👍 Snap judgment</h3><p>45 seconds of true or false: does this meaning belong to this kanji?</p></div>
-      <div class="game-card" id="g-lightning"><h3>⚡ Lightning round</h3><p>60 seconds. As many correct answers as you can. Streaks count.</p></div>
-      <div class="game-card" id="g-survival"><h3>❤️ Survival</h3><p>Three lives, no timer. Questions march down the frequency list and get harder as you go.</p></div>
-      <div class="game-card" id="g-horde"><h3>🧟 Kanji horde</h3><p>Zombies shamble toward your gate. Each correct answer cuts down the closest one. Hold the line.</p></div>
+      ${GAME_CARDS.map(([gid, title, desc, need]) => {
+        const thin = pool.length < need;
+        return `<div class="game-card ${thin ? "thin" : ""}" data-game="${gid}">
+          <h3>${title}</h3><p>${esc(desc)}</p>
+          ${thin ? `<p class="game-warn">Needs ${need}+ kanji from this set — you have ${pool.length}.
+            Opens with everything instead.</p>` : ""}
+        </div>`;
+      }).join("")}
     </div>`);
-  const launch = { "g-match": "match", "g-match-r": "reading", "g-memory": "memory",
-    "g-odd": "odd", "g-snap": "snap", "g-lightning": "lightning",
-    "g-survival": "survival", "g-horde": "horde" };
-  for (const [el, id] of Object.entries(launch)) {
-    $("#" + el).onclick = () => (location.hash = "#/games/" + id);
-  }
+
+  document.querySelectorAll(".chip").forEach((el) => {
+    el.onclick = async () => {
+      await api("/api/settings", { review_scope: el.dataset.scope }).catch(() => {});
+      S.settings.review_scope = el.dataset.scope;
+      routes.games();
+    };
+  });
+  document.querySelectorAll(".game-card").forEach((el) => {
+    el.onclick = () => {
+      const gid = el.dataset.game;
+      const need = (GAME_CARDS.find((g) => g[0] === gid) || [])[3] || 4;
+      location.hash = gameHash(gid, pool.length < need ? null : sc);
+    };
+  });
 };
 
 // Everything that quizzes "the reading" targets the read-aloud reading.
@@ -1620,10 +1737,13 @@ function gameTimer(fn, probeId) {
 // ---------------------------------------------------------------- match pairs
 
 function matchGame(kind, opts = {}) {
-  const base = opts.pool || activePool();
+  const sc = opts.scope !== undefined ? opts.scope : null;
+  const base = opts.pool || gamePool(sc);
   const source = kind === "reading" ? base.filter((r) => primaryReading(r)) : base;
-  const pool = shuffle(source).slice(0, 6);
   const title = opts.title || (kind === "reading" ? "Reading pairs" : "Match pairs");
+  if (!opts.pool && tooFewForGame(sc, source, 6, title,
+      kind === "reading" ? "Reading pairs also needs each kanji to have a standalone reading." : "")) return;
+  const pool = shuffle(source).slice(0, 6);
   const tiles = shuffle([
     ...pool.map((r) => ({ id: r.k, kind: "k", text: r.k })),
     ...pool.map((r) => ({ id: r.k, kind: "m", text: kind === "reading" ? primaryReading(r) : senses(r)[0] })),
@@ -1632,6 +1752,7 @@ function matchGame(kind, opts = {}) {
   let solved = 0, misses = 0, sel = null;
   setMain(`
     <h1>${title}</h1>
+    ${opts.pool ? "" : gameScopeBar(sc)}
     <p class="sub" id="match-status">Match each kanji with its ${kind === "reading" ? "reading" : "meaning"}.</p>
     <div class="match-grid">
       ${tiles.map((t, i) => `<button class="match-tile ${t.kind === "k" || kind === "reading" ? "jp" : ""}" data-i="${i}">${esc(t.text)}</button>`).join("")}
@@ -1650,7 +1771,7 @@ function matchGame(kind, opts = {}) {
         const secs = Math.round((Date.now() - t0) / 1000);
         if (opts.onDone) return opts.onDone({ secs, misses });
         $("#match-status").innerHTML = `<b style="color:var(--good)">Cleared in ${secs}s with ${misses} miss${misses === 1 ? "" : "es"}!</b> &nbsp;<button class="ghost-btn" id="match-again">Play again</button>`;
-        $("#match-again").onclick = () => matchGame(kind);
+        $("#match-again").onclick = () => matchGame(kind, { scope: sc });
       }
     } else {
       misses++;
@@ -1666,8 +1787,10 @@ function matchGame(kind, opts = {}) {
 
 // ---------------------------------------------------------------- memory flip
 
-function memoryGame() {
-  const pool = shuffle(activePool()).slice(0, 6);
+function memoryGame(sc) {
+  const base = gamePool(sc);
+  if (tooFewForGame(sc, base, 6, "Memory flip")) return;
+  const pool = shuffle(base).slice(0, 6);
   const tiles = shuffle([
     ...pool.map((r) => ({ id: r.k, kind: "k", text: r.k })),
     ...pool.map((r) => ({ id: r.k, kind: "m", text: senses(r)[0] })),
@@ -1675,6 +1798,7 @@ function memoryGame() {
   let first = null, lock = false, flips = 0, solved = 0;
   setMain(`
     <h1>Memory flip</h1>
+    ${gameScopeBar(sc)}
     <p class="sub" id="mem-status">All cards are face down. Find the kanji and meaning pairs.</p>
     <div class="match-grid">
       ${tiles.map((t, i) => `<button class="match-tile facedown" data-i="${i}">?</button>`).join("")}
@@ -1696,7 +1820,7 @@ function memoryGame() {
       first = null;
       if (solved === 6) {
         $("#mem-status").innerHTML = `<b style="color:var(--good)">Cleared in ${flips} flips!</b> (perfect is 6) &nbsp;<button class="ghost-btn" id="mem-again">Play again</button>`;
-        $("#mem-again").onclick = memoryGame;
+        $("#mem-again").onclick = () => memoryGame(sc);
       }
     } else {
       lock = true;
@@ -1728,9 +1852,12 @@ function buildOddRound(pool) {
   return { reading, trio, odd, options: shuffle([...trio, odd]) };
 }
 
-function oddOneOutGame() {
-  // reading groups need a wide pool; extend with common kanji if the user's is small
-  const pool = [...new Set([...activePool(), ...S.kanji.slice(0, 400)])];
+function oddOneOutGame(sc) {
+  // This game needs three kanji sharing an on-reading, which a single batch
+  // almost never contains — so it asks rather than silently widening the net.
+  const pool = gamePool(sc);
+  if (tooFewForGame(sc, pool, 40, "Odd one out",
+      "It has to find three kanji that share an on-reading, which needs a wide set.")) return;
   const TOTAL = 10;
   let round = 0, score = 0;
   const ask = () => {
@@ -1743,7 +1870,7 @@ function oddOneOutGame() {
           <button class="primary-btn" id="odd-again">Again</button>
           <button class="ghost-btn" onclick="location.hash='#/games'">Done</button>
         </div>`;
-      $("#odd-again").onclick = oddOneOutGame;
+      $("#odd-again").onclick = () => oddOneOutGame(sc);
       return;
     }
     const r = buildOddRound(pool);
@@ -1780,6 +1907,7 @@ function oddOneOutGame() {
   };
   setMain(`
     <h1>Odd one out</h1>
+    ${gameScopeBar(sc)}
     <div class="lightning-hud"><span>Round <b id="odd-round">1 / ${TOTAL}</b></span></div>
     <div class="quiz-wrap"><div class="quiz-card" id="odd-box"></div></div>
     <div class="row" style="justify-content:center;margin-top:16px"><button class="ghost-btn" onclick="location.hash='#/games'">Quit</button></div>`);
@@ -1788,8 +1916,9 @@ function oddOneOutGame() {
 
 // ---------------------------------------------------------------- snap judgment
 
-function snapGame() {
-  const pool = activePool();
+function snapGame(sc) {
+  const pool = gamePool(sc);
+  if (tooFewForGame(sc, pool, 4, "Snap judgment")) return;
   let score = 0, streak = 0, best = 0, timeLeft = 45, alive = true;
   const ask = () => {
     if (!alive || !document.getElementById("snap-box")) return;
@@ -1830,6 +1959,7 @@ function snapGame() {
   };
   setMain(`
     <h1>Snap judgment</h1>
+    ${gameScopeBar(sc)}
     <div class="lightning-hud">
       <span>⏱ <b id="snap-time">45</b>s</span><span>Score <b id="snap-score">0</b></span><span>Streak <b id="snap-streak">0</b></span>
     </div>
@@ -1846,7 +1976,7 @@ function snapGame() {
           <button class="primary-btn" id="snap-again">Again</button>
           <button class="ghost-btn" onclick="location.hash='#/games'">Done</button>
         </div>`;
-      $("#snap-again").onclick = snapGame;
+      $("#snap-again").onclick = () => snapGame(sc);
     }
     updateHud();
   }, "snap-time");
@@ -1855,14 +1985,19 @@ function snapGame() {
 
 // ---------------------------------------------------------------- survival
 
-function survivalGame() {
+function survivalGame(sc) {
+  // Unscoped Survival keeps its original shape: it marches down the whole
+  // frequency list and deliberately runs past what you know — that's the game.
+  // Scoped, it marches down that set instead, still in frequency order.
+  const list = sc ? gamePool(sc) : S.kanji;
+  if (sc && tooFewForGame(sc, list, 4, "Survival")) return;
   let lives = 3, score = 0, idx = 0;
   const hearts = () => "♥".repeat(lives) + "♡".repeat(3 - lives);
   const ask = () => {
     if (!document.getElementById("sv-box")) return;
-    while (idx < S.kanji.length && !senses(S.kanji[idx]).length) idx++;
-    if (idx >= S.kanji.length) return end();
-    const row = S.kanji[idx];
+    while (idx < list.length && !senses(list[idx]).length) idx++;
+    if (idx >= list.length) return end();
+    const row = list[idx];
     const facet = primaryReading(row) && Math.random() < 0.4 ? "reading" : "meaning";
     let answer, choices, jp;
     if (facet === "reading") {
@@ -1874,7 +2009,7 @@ function survivalGame() {
       choices = shuffle([answer, ...pickMeaningDistractors(row, 3)]);
       jp = "";
     }
-    $("#sv-rank").textContent = "#" + (idx + 1);
+    $("#sv-rank").textContent = sc ? `${idx + 1}/${list.length}` : "#" + (idx + 1);
     $("#sv-box").innerHTML = `
       <div class="q-kind">${facet === "reading" ? "Pick a correct reading" : "What does this mean?"}</div>
       <div class="q-prompt-kanji" style="font-size:80px">${row.k}</div>
@@ -1904,27 +2039,29 @@ function survivalGame() {
     if (!document.getElementById("sv-box")) return;
     $("#sv-box").innerHTML = `
       <div class="q-kind">Run over</div>
-      <div class="q-prompt-text">${score} correct · reached rank #${idx + 1}</div>
+      <div class="q-prompt-text">${score} correct · ${sc ? `reached ${idx + 1} of ${list.length}` : `reached rank #${idx + 1}`}</div>
       <div class="row" style="justify-content:center">
         <button class="primary-btn" id="sv-again">Again</button>
         <button class="ghost-btn" onclick="location.hash='#/games'">Done</button>
       </div>`;
-    $("#sv-again").onclick = survivalGame;
+    $("#sv-again").onclick = () => survivalGame(sc);
   };
   setMain(`
     <h1>Survival</h1>
+    ${gameScopeBar(sc)}
     <div class="lightning-hud">
       <span style="color:var(--bad)"><b id="sv-lives">${hearts()}</b></span>
       <span>Score <b id="sv-score">0</b></span>
-      <span>Rank <b id="sv-rank">#1</b></span>
+      <span>${sc ? "Kanji" : "Rank"} <b id="sv-rank">${sc ? "1/" + list.length : "#1"}</b></span>
     </div>
     <div class="quiz-wrap"><div class="quiz-card" id="sv-box"></div></div>
     <div class="row" style="justify-content:center;margin-top:16px"><button class="ghost-btn" onclick="location.hash='#/games'">Quit</button></div>`);
   ask();
 }
 
-function lightningGame() {
-  const pool = activePool();
+function lightningGame(sc) {
+  const pool = gamePool(sc);
+  if (tooFewForGame(sc, pool, 4, "Lightning round")) return;
   let score = 0, streak = 0, best = 0, timeLeft = 60, alive = true;
   const ask = () => {
     if (!alive) return;
@@ -1954,6 +2091,7 @@ function lightningGame() {
   };
   setMain(`
     <h1>Lightning round</h1>
+    ${gameScopeBar(sc)}
     <div class="lightning-hud">
       <span>⏱ <b id="lh-time">60</b>s</span><span>Score <b id="lh-score">0</b></span><span>Streak <b id="lh-streak">0</b></span>
     </div>
@@ -1971,7 +2109,7 @@ function lightningGame() {
           <button class="primary-btn" id="lq-again">Again</button>
           <button class="ghost-btn" onclick="location.hash='#/games'">Done</button>
         </div>`;
-      $("#lq-again").onclick = lightningGame;
+      $("#lq-again").onclick = () => lightningGame(sc);
     }
     updateHud();
   }, "lh-time");
@@ -2011,8 +2149,9 @@ const ZOMBIE_FRAMES = [
 const ZOMBIE_COLORS = { G: "#7bb661", r: "#e04444", A: "#5d9147", D: "#3f4a3a" };
 const ZPX = 3; // pixel size: sprites render 24x33
 
-function hordeGame() {
-  const pool = activePool();
+function hordeGame(sc) {
+  const pool = gamePool(sc);
+  if (tooFewForGame(sc, pool, 4, "Kanji horde")) return;
   const W = 640, H = 176, GROUND = 150, GATE_X = 52;
   let hp = 10, kills = 0, over = false;
   const t0 = Date.now();
@@ -2021,6 +2160,7 @@ function hordeGame() {
 
   setMain(`
     <h1>Kanji horde</h1>
+    ${gameScopeBar(sc)}
     <div class="lightning-hud">
       <span style="color:var(--bad)">Gate <b id="hd-hp">${"♥".repeat(hp)}</b></span>
       <span>Cut down <b id="hd-kills">0</b></span>
@@ -2117,7 +2257,7 @@ function hordeGame() {
         <button class="primary-btn" id="hd-again">Again</button>
         <button class="ghost-btn" onclick="location.hash='#/games'">Done</button>
       </div>`;
-    $("#hd-again").onclick = hordeGame;
+    $("#hd-again").onclick = () => hordeGame(sc);
   };
 
   const ask = () => {
