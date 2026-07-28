@@ -107,6 +107,13 @@ everything else in the app.
   にち). Question type adapts to how well you know the card. Second-meaning
   cards skip the reverse question, since several kanji can carry the same
   secondary sense.
+- **Kanji shown in more than one typeface.** Print uses 明朝, signage uses
+  ゴシック, schoolbooks use 教科書体, and the shapes differ enough to catch out a
+  learner who has only met one. Quiz prompts rotate through whatever Japanese
+  faces your computer actually has — *actually*, because each one is measured
+  rather than assumed, and any that renders identically to another is dropped.
+  Teaching surfaces stay in one font for legibility. Settings shows you every
+  face it found and lets you turn the whole thing off.
 - **Games follow the set you're studying.** Pick a set on the Games page — a
   goal, a track, a single batch, or everything — and a game only ever asks about
   kanji from it. Nothing is silently substituted: if a set is too small for a

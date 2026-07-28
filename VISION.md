@@ -784,6 +784,82 @@ scope they came from.
 
 ---
 
+## V-009 — Typeface variety (raised 2026-07-28)
+
+### The idea
+
+A kanji met only ever in one typeface is half-learned. Print uses 明朝, signage
+uses ゴシック, school material uses 教科書体, and the shapes differ enough to
+stop a learner cold — 直, 心, 令 and 永 are drawn noticeably differently between
+faces. Quiz prompts should rotate through whatever faces the machine has, on by
+default, with a settings toggle to pin everything back to one font.
+
+### The actual difficulty: CSS lies about fonts
+
+The feature is trivial to *appear* to build and easy to get silently wrong.
+`font-family` falls back without complaint: ask for a face that isn't installed
+and the browser renders the default one. You get a program that claims variety,
+shuffles font names, and shows the same glyph in the same typeface every time —
+the learner is told they're being challenged and they aren't.
+
+That is the same failure as the games' silent pool substitution in V-008, and it
+gets the same answer: **don't trust, measure.**
+
+**D1 — Faces are fingerprinted, not assumed.** Each candidate is measured on a
+canvas (`width`, `actualBoundingBoxAscent/Descent/Left/Right` over a probe
+string of shape-diverse kanji, 永国鬱曜線令直心) and kept only if its fingerprint
+differs from a deliberately-absent font *and* from every face already in the
+set. Detection being imperfect then stops mattering: what is guaranteed is that
+no two entries in the list render identically.
+
+**D2 — Width alone would not have worked.** CJK glyphs are full-width, so the
+same string in Hiragino Sans, Hiragino Mincho and Hiragino Maru Gothic measures
+`300.00 × 100.00` in all three. Verified. The classic width-comparison font
+detection trick silently fails for Japanese; the bounding-box metrics are what
+separate them.
+
+**D3 — One representative per style, not per family.** The catalogue lists
+candidates grouped into ゴシック体 / 明朝体 / 丸ゴシック体 / 教科書体 / UD体, each
+with cross-platform alternatives (macOS Hiragino, Windows Yu / MS / BIZ UD /
+UD Digi Kyokasho, Linux Noto / IPA / Takao). The first family that resolves in
+each style wins. Twelve near-identical gothics would be variety on paper only.
+
+**D4 — Vary the question, not the teaching.** Prompts rotate; the intro card,
+the answer reveal, the kanji grids and the detail modal stay in the interface
+font. When a learner is *being taught* the character, clarity wins; when they
+are being *tested* on it, the unfamiliar face is the point. Verified both ways.
+
+**D5 — One face per question, not per glyph.** On the reverse question and in
+Odd One Out all four kanji choices share a face, so the learner is telling
+kanji apart rather than telling typefaces apart. Match Pairs is the exception:
+there each tile gets its own face, because matching a character across faces is
+exactly the skill.
+
+**D6 — Name the face in the feedback.** "shown in 明朝体 Mincho" after each
+answer. The variety is then legible instead of mysterious, and the learner
+picks up the names of the styles as a side effect.
+
+**D7 — Say what was actually found.** Settings renders a live sample of every
+detected face with its Japanese name, English name and real family name. If
+fewer than two distinct faces exist, it says so plainly and notes that the
+setting can't do anything — rather than pretending.
+
+### Verified
+
+On this machine three faces resolve (Hiragino Sans / Mincho ProN / Maru Gothic
+ProN). Canvas pixel hashes of 令 in each: three distinct values. Twelve
+consecutive prompts drew all three; with the toggle off, twelve consecutive
+prompts drew only the interface font, and the setting persisted. All routes and
+games unaffected.
+
+A note on the testing: the first pixel-proof run reported all three faces
+identical, which was the *test* being wrong — it passed `var(--jp)` inside a
+canvas `font` string, which canvas cannot parse, so every measurement fell back
+to the default. Worth recording because it is the exact failure the feature
+guards against, reproduced accidentally in the harness.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.

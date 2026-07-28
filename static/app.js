@@ -96,6 +96,80 @@ function colSlice(cid, i) {
   const size = S.settings.batch_size;
   return colChars(cid).slice(i * size, (i + 1) * size).map((c) => S.byChar[c]);
 }
+// ================================================================ typefaces
+//
+// A kanji met only ever in one typeface is half-learned. Print uses mincho,
+// signage uses gothic, school material uses textbook faces, and the shapes
+// genuinely differ — 令 and 直 and 心 are drawn differently enough to stop a
+// learner who has only seen one. So quiz prompts rotate through whatever faces
+// the machine actually has.
+//
+// "Actually has" is the whole difficulty. CSS falls back silently: asking for a
+// font that isn't installed renders in the default face and looks like variety
+// while delivering none. So fonts are not trusted, they are measured — each
+// candidate is fingerprinted on a canvas and kept only if it renders
+// *differently* from every face already in the set. Detection being imperfect
+// then doesn't matter; what matters is that two entries never look the same.
+
+const FONT_STYLES = [
+  { id: "gothic", jp: "ゴシック体", en: "Gothic", families: [
+    "Hiragino Sans", "Yu Gothic", "YuGothic", "Meiryo", "Noto Sans CJK JP",
+    "Noto Sans JP", "Source Han Sans JP", "IPAGothic", "TakaoGothic",
+    "VL Gothic", "Osaka", "MS Gothic"] },
+  { id: "mincho", jp: "明朝体", en: "Mincho", families: [
+    "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Toppan Bunkyu Mincho",
+    "Noto Serif CJK JP", "Noto Serif JP", "Source Han Serif JP", "IPAMincho",
+    "TakaoMincho", "MS Mincho"] },
+  { id: "maru", jp: "丸ゴシック体", en: "Rounded gothic", families: [
+    "Hiragino Maru Gothic ProN", "Tsukushi A Round Gothic", "Kosugi Maru",
+    "Rounded M+ 1c", "M PLUS Rounded 1c"] },
+  { id: "kyokasho", jp: "教科書体", en: "Textbook", families: [
+    "UD Digi Kyokasho N-R", "UD Digi Kyokasho NK-R", "Klee One", "Klee",
+    "YuKyokasho", "Yu Kyokasho"] },
+  { id: "ud", jp: "UD体", en: "Universal design", families: [
+    "BIZ UDGothic", "BIZ UDMincho", "BIZ UDPGothic"] },
+];
+
+// Kanji chosen to differ sharply between faces: strokes, hooks, serifs, density.
+const FONT_PROBE = "永国鬱曜線令直心";
+
+function fontFingerprint(family) {
+  const c = fontFingerprint._c || (fontFingerprint._c = document.createElement("canvas"));
+  const ctx = c.getContext("2d");
+  ctx.font = `48px ${family}, monospace`;
+  const m = ctx.measureText(FONT_PROBE);
+  return [m.width, m.actualBoundingBoxAscent, m.actualBoundingBoxDescent,
+          m.actualBoundingBoxLeft, m.actualBoundingBoxRight]
+    .map((n) => Math.round((n || 0) * 100) / 100).join("|");
+}
+
+/** Faces present on this machine that genuinely render differently from each other. */
+function detectFonts() {
+  const absent = fontFingerprint('"__kt_no_such_font__"');
+  const seen = new Map([[absent, "(fallback)"]]);
+  const out = [];
+  for (const style of FONT_STYLES) {
+    for (const family of style.families) {
+      const fp = fontFingerprint(`"${family}"`);
+      if (seen.has(fp)) continue;          // absent, or identical to one we have
+      seen.set(fp, family);
+      out.push({ id: style.id, jp: style.jp, en: style.en, family });
+      break;                                // one representative per style
+    }
+  }
+  return out;
+}
+
+const fontVarietyOn = () => S.settings?.font_variety !== false && (S.fonts || []).length >= 2;
+
+/** A face for one question. Null means "use the interface font". */
+function pickFont() {
+  return fontVarietyOn() ? pick(S.fonts) : null;
+}
+
+/** Inline style for a varied prompt; empty string when variety is off. */
+const fontStyle = (f) => (f ? ` style="font-family:'${f.family}',var(--jp)"` : "");
+
 // ================================================================ the fluency ladder
 //
 // Four rungs, in the order a learner climbs them:
@@ -370,7 +444,7 @@ function buildQuestion(item) {
     mode = pick(mature ? ["type-reading", "type-reading", "mc-reading"]
                        : ["mc-reading", "mc-reading", "type-reading"]);
   }
-  const q = { item, row, mode, facet, senseIdx: SENSE_INDEX[facet] ?? 0 };
+  const q = { item, row, mode, facet, senseIdx: SENSE_INDEX[facet] ?? 0, font: pickFont() };
   if (mode === "mc-meaning") {
     q.answer = senseText(row, facet) || senses(row)[0];
     q.choices = shuffle([q.answer, ...pickMeaningDistractors(row, 3)]);
@@ -1263,14 +1337,14 @@ function quizCard(sess, item) {
   let inner = "";
   if (q.mode === "mc-kanji") {
     inner = `<div class="q-prompt-text">${esc(senses(q.row)[0])}</div>
-      <div class="choices">${q.choices.map((c, i) => `<button class="choice jp" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${c}</button>`).join("")}</div>`;
+      <div class="choices">${q.choices.map((c, i) => `<button class="choice jp" data-c="${esc(c)}"${fontStyle(q.font)}><span class="key-hint">${i + 1}</span>${c}</button>`).join("")}</div>`;
   } else if (q.mode === "mc-meaning" || q.mode === "mc-reading") {
     const jp = q.mode === "mc-reading" ? "jp" : "";
-    inner = `<div class="q-prompt-kanji">${q.row.k}</div>${known}
+    inner = `<div class="q-prompt-kanji"${fontStyle(q.font)}>${q.row.k}</div>${known}
       <div class="choices">${q.choices.map((c, i) => `<button class="choice ${jp}" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}</div>`;
   } else {
     const isReading = q.mode === "type-reading";
-    inner = `<div class="q-prompt-kanji">${q.row.k}</div>${known}
+    inner = `<div class="q-prompt-kanji"${fontStyle(q.font)}>${q.row.k}</div>${known}
       <input class="type-input ${isReading ? "jp" : ""}" id="type-in" autocomplete="off" spellcheck="false"
              placeholder="${isReading ? "reading…" : "meaning…"}">
       ${isReading ? `<div class="kana-preview" id="kana-prev"></div>` : ""}
@@ -1415,7 +1489,8 @@ function finishAnswer(sess, item, q, correct, chosen, ms, note) {
     <div class="answer-was"><span class="jp">${r.k}</span>
       <span class="aw-arrow">→</span> <b>${esc(want || "—")}</b></div>
     ${nudge}
-    <div class="detail">read aloud ${readingLine(r)}</div>
+    <div class="detail">read aloud ${readingLine(r)}${q.font
+      ? ` · shown in <span class="jp">${q.font.jp}</span> <span class="rk">${esc(q.font.en)}</span>` : ""}</div>
     ${senseLadder(r, sensesTaught(r.k))}
     <div id="fix-slot"></div>
     <button class="primary-btn" id="next-btn" style="margin-top:12px" disabled>Continue ↵</button>`;
@@ -1755,7 +1830,7 @@ function matchGame(kind, opts = {}) {
     ${opts.pool ? "" : gameScopeBar(sc)}
     <p class="sub" id="match-status">Match each kanji with its ${kind === "reading" ? "reading" : "meaning"}.</p>
     <div class="match-grid">
-      ${tiles.map((t, i) => `<button class="match-tile ${t.kind === "k" || kind === "reading" ? "jp" : ""}" data-i="${i}">${esc(t.text)}</button>`).join("")}
+      ${tiles.map((t, i) => `<button class="match-tile ${t.kind === "k" || kind === "reading" ? "jp" : ""}" data-i="${i}"${t.kind === "k" ? fontStyle(pickFont()) : ""}>${esc(t.text)}</button>`).join("")}
     </div>
     <div class="row" style="justify-content:center"><button class="ghost-btn" onclick="location.hash='${opts.backHash || "#/games"}'">← Back</button></div>`);
   const els = [...document.querySelectorAll(".match-tile")];
@@ -1874,13 +1949,14 @@ function oddOneOutGame(sc) {
       return;
     }
     const r = buildOddRound(pool);
+    const of_ = pickFont();
     if (!r) { $("#odd-box").innerHTML = `<div class="q-prompt-text">Not enough shared readings to play yet.</div>`; return; }
     $("#odd-round").textContent = `${round + 1} / ${TOTAL}`;
     $("#odd-box").innerHTML = `
       <div class="q-kind">Which kanji sounds different?</div>
       <p style="margin:0;color:var(--ink-2);font-size:14px">Three of these four share the same on-reading (the Chinese-derived pronunciation). Pick the one that is <b>not</b> read that way.</p>
       <div class="choices choices-4">${r.options.map((o, i) =>
-        `<button class="choice jp" data-k="${o.k}"><span class="key-hint">${i + 1}</span>${o.k}</button>`).join("")}
+        `<button class="choice jp" data-k="${o.k}"${fontStyle(of_)}><span class="key-hint">${i + 1}</span>${o.k}</button>`).join("")}
       </div>
       <div class="q-feedback" id="odd-fb"></div>`;
     const btns = [...document.querySelectorAll("#odd-box .choice")];
@@ -1926,8 +2002,9 @@ function snapGame(sc) {
     const truth = Math.random() < 0.5;
     const shown = truth ? pick(senses(row)) : (pickMeaningDistractors(row, 1)[0] || senses(row)[0]);
     const isMatch = truth || row.meanings.some((m) => m.toLowerCase() === shown.toLowerCase());
+    const sf = pickFont();
     $("#snap-box").innerHTML = `
-      <div class="q-prompt-kanji" style="font-size:76px">${row.k}</div>
+      <div class="q-prompt-kanji" style="font-size:76px${sf ? `;font-family:'${sf.family}',var(--jp)` : ""}">${row.k}</div>
       <div class="q-prompt-text" style="padding:8px 0 0">${esc(shown)}</div>
       <div class="choices">
         <button class="choice" data-v="1"><span class="key-hint">1</span>✓ Match</button>
@@ -2010,9 +2087,10 @@ function survivalGame(sc) {
       jp = "";
     }
     $("#sv-rank").textContent = sc ? `${idx + 1}/${list.length}` : "#" + (idx + 1);
+    const vf = pickFont();
     $("#sv-box").innerHTML = `
       <div class="q-kind">${facet === "reading" ? "Pick a correct reading" : "What does this mean?"}</div>
-      <div class="q-prompt-kanji" style="font-size:80px">${row.k}</div>
+      <div class="q-prompt-kanji" style="font-size:80px${vf ? `;font-family:'${vf.family}',var(--jp)` : ""}">${row.k}</div>
       <div class="choices">${choices.map((c, i) =>
         `<button class="choice ${jp}" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}
       </div>`;
@@ -2068,8 +2146,9 @@ function lightningGame(sc) {
     const row = pick(pool);
     const answer = senses(row)[0];
     const choices = shuffle([answer, ...pickMeaningDistractors(row, 3)]);
+    const lf = pickFont();
     $("#lq").innerHTML = `
-      <div class="q-prompt-kanji">${row.k}</div>
+      <div class="q-prompt-kanji"${fontStyle(lf)}>${row.k}</div>
       <div class="choices">${choices.map((c, i) => `<button class="choice" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}</div>`;
     const btns = [...document.querySelectorAll("#lq .choice")];
     const onPick = (btn) => {
@@ -2269,7 +2348,7 @@ function hordeGame(sc) {
     const choices = shuffle([answer, ...distractors]);
     const jp = facet === "reading" ? "jp" : "";
     $("#horde-q").innerHTML = `
-      <div class="horde-prompt"><span class="q-prompt-kanji" style="font-size:56px">${row.k}</span>
+      <div class="horde-prompt"><span class="q-prompt-kanji" style="font-size:56px${(function(){const f=pickFont();return f?`;font-family:'${f.family}',var(--jp)`:"";})()}">${row.k}</span>
         <span class="q-kind" style="margin:0">${facet === "reading" ? "reading" : "meaning"}</span></div>
       <div class="choices">${choices.map((c, i) =>
         `<button class="choice ${jp}" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}
@@ -2637,7 +2716,7 @@ function pathQuiz(node, boss) {
     $("#pq-score").textContent = score;
     $("#pq-box").innerHTML = `
       <div class="q-kind">${facet === "reading" ? "Pick a correct reading" : "What does this mean?"}</div>
-      <div class="q-prompt-kanji" style="font-size:80px">${r.k}</div>
+      <div class="q-prompt-kanji" style="font-size:80px${(function(){const f=pickFont();return f?`;font-family:'${f.family}',var(--jp)`:"";})()}">${r.k}</div>
       <div class="choices">${choices.map((c, x) =>
         `<button class="choice ${jp}" data-c="${esc(c)}"><span class="key-hint">${x + 1}</span>${esc(c)}</button>`).join("")}
       </div>`;
@@ -3055,6 +3134,17 @@ routes.settings = async () => {
         <label>Session length (cards)</label>${sel("session_size", [10, 20, 30, 50], s.session_size)}
       </div>
     </div>
+    <h2>Typefaces</h2>
+    <div class="card">
+      <div class="form-grid">
+        <label>Vary the typeface</label>
+        <select id="set-font_variety">
+          <option value="1" ${s.font_variety !== false ? "selected" : ""}>Yes — rotate through the faces on this computer</option>
+          <option value="0" ${s.font_variety === false ? "selected" : ""}>No — always use the interface font</option>
+        </select>
+      </div>
+      <div id="font-report"></div>
+    </div>
     <h2>Meanings and readings</h2>
     <div class="card">
       <div class="form-grid">
@@ -3107,6 +3197,39 @@ routes.settings = async () => {
       await loadCollections();
     };
   }
+  // Report what was actually detected. Claiming variety we can't deliver would be
+  // the same silent-substitution mistake the games used to make.
+  (function () {
+    const el = $("#font-report");
+    if (!el) return;
+    const fonts = S.fonts || [];
+    const sample = "永国令直心";
+    if (fonts.length < 2) {
+      el.innerHTML = `<p class="settings-note"><b>Only one Japanese typeface was found
+        on this computer</b>, so there is nothing to rotate through — prompts will use it
+        whatever this setting says. Installing another Japanese font (a 明朝 / Mincho face
+        is the most useful second one) turns this on by itself.</p>`;
+      return;
+    }
+    el.innerHTML = `
+      <p class="settings-note">${fonts.length} distinct Japanese typefaces found on this
+        computer. Quiz prompts rotate through them; everything else — the intro card, the
+        answer reveal, kanji lists — stays in the interface font so it's always legible.
+        Each face below was measured, not assumed: any that rendered identically to
+        another was dropped.</p>
+      <div class="font-samples">
+        ${fonts.map((f) => `
+          <div class="font-sample">
+            <div class="fs-glyphs" style="font-family:'${f.family}',var(--jp)">${sample}</div>
+            <div class="fs-name"><span class="jp">${f.jp}</span> · ${esc(f.en)}</div>
+            <div class="fs-family">${esc(f.family)}</div>
+          </div>`).join("")}
+      </div>`;
+  })();
+  $("#set-font_variety").onchange = async (e) => {
+    await api("/api/settings", { font_variety: e.target.value === "1" });
+    await loadState();
+  };
   $("#set-strict_primary").onchange = async (e) => {
     await api("/api/settings", { strict_primary: e.target.value === "1" });
     await loadState();
@@ -3150,6 +3273,7 @@ $("#theme-toggle").onclick = () => {
   const res = await fetch("/data/kanji.json");
   S.kanji = await res.json();
   S.byChar = Object.fromEntries(S.kanji.map((r) => [r.k, r]));
+  S.fonts = detectFonts();
   // Curated read-aloud readings; the heuristic in spokenReading() covers the
   // rest. spoken.local.json is the user's own overlay: optional, wins over the
   // shipped file, and survives updates (update.py preserves it).

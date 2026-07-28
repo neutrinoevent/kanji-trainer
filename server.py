@@ -41,6 +41,11 @@ DEFAULT_SETTINGS = {
     "goals": [],         # user-declared fluency goals
     # last review scope the user picked ("all", or "c/<collection>[/<from>-<to>]")
     "review_scope": "all",
+    # Show quiz prompts in a rotating set of Japanese typefaces. Real kanji turn
+    # up in mincho, gothic, rounded and textbook faces and the shapes differ
+    # enough to trip a learner who only ever met one. On by default; off pins
+    # everything to the interface font.
+    "font_variety": True,
 }
 
 # ---------------------------------------------------------------- data
