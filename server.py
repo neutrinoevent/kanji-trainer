@@ -197,6 +197,11 @@ def save_settings(patch):
 LEARN_STEP_1 = timedelta(minutes=10)
 LEARN_STEP_2 = timedelta(days=1)
 GRADUATE_DAYS = 3.0
+# Intervals compound: 3 days times an ease of ~2.5 passes a century in about
+# eleven successful reviews and overflows datetime entirely on the fourteenth,
+# which is an ordinary number of reviews for one kanji over a couple of years.
+# Without a ceiling that arrives as a 500 and a card that stops working.
+MAX_INTERVAL = 365.0
 
 # Facets. 'meaning' teaches the most common sense of a kanji and 'reading'
 # teaches how it is said aloud on its own; those two are created together when a
@@ -366,7 +371,7 @@ def apply_answer(kanji, facet, correct):
                 state, interval = "review", GRADUATE_DAYS
                 due = now + timedelta(days=interval)
         else:
-            interval = max(interval * ease, interval + 1)
+            interval = min(max(interval * ease, interval + 1), MAX_INTERVAL)
             ease = min(ease + 0.05, 2.8)
             due = now + timedelta(days=interval)
     else:
