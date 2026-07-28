@@ -5,6 +5,9 @@ set, JLPT levels, school grades, jinmeiyō name kanji, and a newspaper-frequency
 ranking (3,122 kanji in total), studied in small batches. Everything runs on
 your own machine. No accounts, no internet needed after setup.
 
+Its sibling program, [Hiragana Trainer](https://github.com/neutrinoevent/hiragana-trainer),
+covers the two kana syllabaries that come before this one.
+
 ## Quick start
 
 **Requirement: Python 3.9+** (standard install from [python.org](https://www.python.org/downloads/);
