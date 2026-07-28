@@ -63,8 +63,10 @@ everything else in the app.
   "18 kanji left to start, 40 days out, that's 2/day — within your 10/day
   setting."
 - **The sense ladder.** Each kanji starts with one meaning card, for its most
-  common sense. Once that card survives a week-long gap, a second-meaning card
-  unlocks on its own and turns up as a review of a kanji you already know.
+  common sense. Once you've actually demonstrated that one — produced it from
+  memory, in more than one kind of question, on more than one day — a
+  second-meaning card unlocks on its own and turns up as a review of a kanji you
+  already know.
   Extra meanings have their own daily budget so depth never crowds out new
   kanji, and typing a real-but-secondary meaning tells you exactly that instead
   of just "wrong". Radical names and counter notes ("One Radical (no.1)") are

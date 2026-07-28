@@ -414,10 +414,11 @@ def open_facets(kanji):
 def unlock_senses():
     """Create the next sense card for every kanji whose current sense is operative.
 
-    This is the sense ladder: you never meet a kanji's second meaning until its
-    first meaning has graduated to review with a week-plus interval and a few
-    reps behind it. The new card is created as 'new', so it then flows through
-    the ordinary queue on the sense budget below.
+    This is the sense ladder: you never meet a kanji's second meaning until you
+    have demonstrated the first one — produced it from memory, in more than one
+    kind of question, on more than one day (see demo_tier). The new card is
+    created as 'new', so it then flows through the ordinary queue on the sense
+    budget below.
     """
     conn = db()
     have = {(r["kanji"], r["facet"])
