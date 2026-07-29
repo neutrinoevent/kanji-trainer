@@ -860,6 +860,105 @@ guards against, reproduced accidentally in the harness.
 
 ---
 
+## V-010 — The mastery exam (raised 2026-07-28)
+
+### The idea
+
+A capstone for a batch. Alexander's brother has finished jōyō Grade 1 batch 1
+and wants something that crowns it — a comprehensive assessment hitting the
+kanji from many angles at once: visual recognition, most common meaning,
+pronunciation. "Formidable enough but not punishing", highly diverse, and
+applicable to *any* batch rather than hand-built for one.
+
+Crucially: he has **not** learned every secondary meaning, and the exam must not
+require them.
+
+### What makes it an exam rather than another review session
+
+Review is study. It re-asks what you miss, tells you immediately, walks you
+through a correction, and nudges the schedule. An exam is assessment, so it
+inverts several of those on purpose:
+
+**D1 — Feedback is deferred to the end.** No per-question verdict. Immediate
+feedback would let a learner absorb the answer mid-test and then be scored on
+it, which measures the test rather than the learner. Verified: 50 questions
+driven end to end with zero per-question verdicts rendered.
+
+**D2 — Nothing is re-asked, and there is no correction step.** Both are right
+for study and wrong for measurement.
+
+**D3 — It does not touch the review schedule.** A nervous run must not be able
+to damage weeks of spacing — fear of that would stop anyone sitting it. Answers
+still count as *evidence* (`on_target`, same as drills since V-007), because
+they are real retrieval in real question types. The diagnosis comes from the
+report, not from silently rescheduling.
+
+> Alternative considered: bring missed items forward in the schedule. Rejected
+> for now — it makes the exam something with a cost, and the report plus a
+> one-tap drill of exactly the missed kanji is more actionable than an invisible
+> schedule change.
+
+### Diversity, and how it is enforced rather than hoped for
+
+**D4 — Two required sections, one bonus.** *Recognition and meaning* and
+*Reading aloud* each ask one question per kanji; *Further meanings* is bonus.
+
+**D5 — Question types are spread, not sampled at random.** Within the meaning
+section the modes cycle `mc-meaning` → `mc-kanji` → `type-meaning` across the
+kanji and are then shuffled; the reading section alternates `mc-reading` and
+`type-reading`. Random picking would leave a 25-question section that happened
+to be all multiple choice. Every exam therefore contains recognition, reverse
+recall, and unaided production.
+
+**D6 — A section floor, so breadth is a pass condition.** 80% overall *and* at
+least 70% in each required section. Without the floor a learner could pass on
+meaning alone while unable to read any of them. Verified: 25/25 meaning with
+15/25 reading is exactly 80% overall and is correctly refused.
+
+**D7 — Length is bounded by the kanji, not multiplied by the modes.** One
+question per kanji per axis, so a 25-kanji batch is 50 questions plus bonus —
+about ten minutes. Asking every kanji in every mode would have been 100+, which
+is punishing. Scopes larger than 30 kanji are sampled down and say so, which is
+what makes the feature work for any batch, track or goal.
+
+### Secondary meanings can only add
+
+**D8 — Bonus questions appear only for kanji whose `sense2` card the learner has
+actually been given**, and they lift the numerator without lifting the
+denominator. Arithmetically, getting one wrong is identical to never having been
+asked; getting it right can pull a borderline paper up. Verified: 78% + six
+bonus all wrong stays 78%; 78% + six bonus all right becomes 90%; a perfect
+paper plus bonus stays capped at 100%.
+
+That is the direct answer to "he hasn't learned all the alternative meanings" —
+they are reachable credit, never a hurdle.
+
+### The report is the point
+
+Per-section bars with the failing section coloured red, a per-question-type
+breakdown (typed versus multiple choice is the useful split — it separates
+"can't recall" from "can't recognise"), and every miss itemised with the kanji,
+the question type, what the learner answered and what the answer was. Then one
+prominent action: **drill the kanji you missed** — an ad-hoc in-memory set at
+`#/drill/missed`, deliberately not a saved scope since it is a one-off list.
+
+Results are kept as history per scope rather than overwritten: improving from
+72% to 91% is worth seeing. Stored in `settings`, so export/import carries them.
+
+**D9 — The marking is a pure function.** `scoreExam()` takes sections, answers
+and the flat index and returns the verdict, with no DOM and no persistence. The
+thresholds are the part most likely to be quietly wrong, so they are checked
+directly rather than through a browser.
+
+### Flavour
+
+A stamp on the result: 優 Distinction / 合格 Passed / 未だ Not yet. Three new
+badges — 初試験 First Certification, 満点 Full Marks, 十冠 Ten Crowns. Entry
+points on the batch detail page, each batch row in the review hub (with a ✓ once
+passed), goal cards, and a new Exams tab.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.

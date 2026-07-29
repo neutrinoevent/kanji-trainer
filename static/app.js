@@ -817,7 +817,9 @@ async function batchDetail(cid, i) {
       ${overlap ? `<button class="${notStarted ? "ghost-btn" : "primary-btn"}"
           onclick="location.hash='${scopeHash({ cid, from: i, to: i })}'">⚡ Review this batch</button>
         <button class="ghost-btn"
-          onclick="location.hash='${scopeHash({ cid, from: i, to: i }, "drill")}'">🎯 Drill this batch</button>` : ""}
+          onclick="location.hash='${scopeHash({ cid, from: i, to: i }, "drill")}'">🎯 Drill this batch</button>
+        <button class="ghost-btn"
+          onclick="location.hash='#/exam/${scopeSuffix({ cid, from: i, to: i })}'">📋 Mastery exam</button>` : ""}
       <button class="ghost-btn" id="back-btn">← ${col.group}</button>
     </div>
     <div class="kanji-grid">
@@ -1020,10 +1022,14 @@ routes.review = async (arg) => {
 routes.drill = async (arg) => {
   await loadState();
   await loadCollections();
-  const sc = arg === "all" ? null : parseScope(arg);
-  if (arg && arg !== "all" && !sc) return reviewHub();
+  // "missed" is an ad-hoc set held in memory from the last exam — not a saved
+  // scope, because it is a one-off list rather than something to come back to.
+  const adhoc = arg === "missed" ? (S.examMissed || []) : null;
+  if (arg === "missed" && !adhoc.length) return reviewHub();
+  const sc = adhoc ? null : (arg === "all" ? null : parseScope(arg));
+  if (!adhoc && arg && arg !== "all" && !sc) return reviewHub();
 
-  const chars = scopeChars(sc);
+  const chars = adhoc || scopeChars(sc);
   const set = chars ? new Set(chars) : null;
   const items = [];
   for (const r of S.srs.values()) {
@@ -1055,7 +1061,8 @@ routes.drill = async (arg) => {
     return;
   }
   const session = shuffle(items).slice(0, Math.max(10, S.settings.session_size));
-  runSession(session, { title: `Drill · ${scopeLabel(sc)}`, drill: true, scope: sc });
+  runSession(session, { drill: true, scope: sc,
+    title: `Drill · ${adhoc ? `${adhoc.length} kanji missed in the exam` : scopeLabel(sc)}` });
 };
 
 function scopeCard(sc, opts = {}) {
@@ -1105,6 +1112,8 @@ function reviewHub(showAll) {
         <button class="ghost-btn sm" onclick="location.hash='${scopeHash(sc)}'"
                 ${ready ? "" : "disabled"}>${st.due ? `Review (${st.due})` : ready ? "Review · new" : "Review"}</button>
         <button class="ghost-btn sm" onclick="location.hash='${scopeHash(sc, "drill")}'">Drill</button>
+        <button class="ghost-btn sm" onclick="location.hash='#/exam/${scopeSuffix(sc)}'"
+                title="Mastery exam">📋${examHistory(sc).some((r) => r.passed) ? " ✓" : ""}</button>
       </div>`;
   };
 
@@ -2416,10 +2425,13 @@ const BADGES = [
   { kanji: "宝探し", name: "Treasure Hunter", desc: "Open 5 treasure chests", test: (s, px) => px.gifts >= 5 },
   { kanji: "満開", name: "Full Bloom", desc: "Finish the first path section", test: (s, px) => px.firstSection },
   { kanji: "昇段", name: "Promotion", desc: "Reach level 10", test: (s, px) => px.level >= 10 },
+  { kanji: "初試験", name: "First Certification", desc: "Pass a mastery exam", test: (s, px) => px.examsPassed >= 1 },
+  { kanji: "満点", name: "Full Marks", desc: "Score 100% on a mastery exam", test: (s, px) => px.examBest >= 1 },
+  { kanji: "十冠", name: "Ten Crowns", desc: "Pass ten mastery exams", test: (s, px) => px.examsPassed >= 10 },
 ];
 
 function badgeSection(st) {
-  const px = { ...pathContext(), level: levelInfo(calcXP(st)).lvl };
+  const px = { ...pathContext(), ...examContext(), level: levelInfo(calcXP(st)).lvl };
   const nodes = S.kanji.length ? pathNodes() : [];
   const sec1 = nodes.filter((n) => n.unit < 4 && n.type !== "gift");
   px.firstSection = sec1.length > 0 && sec1.every((n) => (S.settings.path || {})[n.id] > 0);
@@ -2469,6 +2481,14 @@ const CHARMS = [
   ["🗻", "富士山", "Mount Fuji"], ["🍡", "団子", "Dango"],
   ["🌊", "波", "The Great Wave"], ["🦊", "狐面", "Fox Mask"],
 ];
+
+function examContext() {
+  const all = Object.values(S.settings?.exams || {}).flat();
+  return {
+    examsPassed: all.filter((r) => r.passed).length,
+    examBest: all.reduce((a, r) => Math.max(a, r.score || 0), 0),
+  };
+}
 
 function pathContext() {
   const p = S.settings?.path || {};
@@ -2914,6 +2934,7 @@ function goalCard(goal, compact) {
         : `<div class="row" style="margin-top:12px">
           <button class="ghost-btn" onclick="location.hash='${scopeHash(goalScope(goal))}'">⚡ Review this set</button>
           <button class="ghost-btn" onclick="location.hash='${scopeHash(goalScope(goal), "drill")}'">🎯 Drill</button>
+          <button class="ghost-btn" onclick="location.hash='#/exam/${scopeSuffix(goalScope(goal))}'">📋 Exam</button>
           <button class="ghost-btn" data-goal-study="${goal.id}">Study</button>
           <button class="ghost-btn danger" data-goal-del="${goal.id}">Remove</button>
         </div>`}
@@ -3029,6 +3050,401 @@ routes.goals = async () => {
   });
   bindTips($("#main"));
 };
+
+// ================================================================ mastery exam
+//
+// A capstone for a batch. Review is study — it re-asks what you miss, tells you
+// immediately, and nudges the schedule. An exam is assessment, so it behaves
+// differently on purpose:
+//
+//   * feedback is deferred to the end, so you can't learn the answer mid-test
+//     and score yourself on it
+//   * nothing is re-asked, and there is no correction step to walk you through
+//   * it does not touch the review schedule, so a nervous run can't damage
+//     weeks of spacing — fear of that would stop anyone taking it
+//   * answers still count as *evidence*, exactly as drills do: real retrieval
+//     in real question types
+//
+// It is deliberately not a test of everything a kanji can mean. Secondary
+// senses appear only where the learner has already unlocked them, are labelled
+// bonus, and can only add to the score — never subtract. Finishing a batch
+// should be crownable without having met every meaning of every character.
+
+const EXAM_MAX_KANJI = 30;          // keeps a whole-collection exam finishable
+const EXAM_PASS = 0.80;             // overall
+const EXAM_SECTION_FLOOR = 0.70;    // every required section, so breadth is enforced
+const EXAM_STRONG = 0.95;
+const EXAM_STRONG_SECTION = 0.90;
+
+const EXAM_SECTIONS = [
+  { id: "meaning", title: "Recognition and meaning", jp: "意味",
+    blurb: "See the kanji and give its most common meaning — or the reverse, "
+         + "given the meaning, pick the kanji. Some ask you to type it with no options.",
+    required: true },
+  { id: "reading", title: "Reading aloud", jp: "読み",
+    blurb: "How you'd say each kanji on its own, as you'd read it off a sign. "
+         + "Some multiple choice, some typed.",
+    required: true },
+  { id: "bonus", title: "Further meanings", jp: "余力",
+    blurb: "Only for kanji whose second meaning you've already unlocked. "
+         + "Bonus marks — these can add to your score but never take from it.",
+    required: false },
+];
+
+function examQuestion(row, mode, facet, senseIdx) {
+  const q = { k: row.k, row, mode, facet, senseIdx: senseIdx || 0, font: pickFont() };
+  if (mode === "mc-meaning") {
+    q.answer = senses(row)[q.senseIdx];
+    q.choices = shuffle([q.answer, ...pickMeaningDistractors(row, 3)]);
+  } else if (mode === "mc-kanji") {
+    q.answer = row.k;
+    q.choices = shuffle([row.k, ...pickKanjiDistractors(row, 3)]);
+  } else if (mode === "mc-reading") {
+    q.answer = primaryReading(row);
+    q.choices = shuffle([q.answer, ...pickReadingDistractors(row, 3)]);
+  } else if (mode === "type-meaning") {
+    q.answer = senses(row)[q.senseIdx];
+  } else {
+    q.answer = primaryReading(row);
+  }
+  return q;
+}
+
+/** Spread modes evenly across the kanji rather than picking each at random. */
+function spreadModes(n, modes) {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(modes[i % modes.length]);
+  return shuffle(out);
+}
+
+function buildExam(sc) {
+  const all = (scopeChars(sc) || []).filter((k) => S.byChar[k] && senses(S.byChar[k]).length);
+  const sampled = all.length > EXAM_MAX_KANJI ? shuffle(all).slice(0, EXAM_MAX_KANJI) : all.slice();
+  const chars = shuffle(sampled);
+
+  const mModes = spreadModes(chars.length, ["mc-meaning", "mc-kanji", "type-meaning"]);
+  const meaning = chars.map((k, i) => examQuestion(S.byChar[k], mModes[i], "meaning", 0));
+
+  const readable = chars.filter((k) => primaryReading(S.byChar[k]));
+  const rModes = spreadModes(readable.length, ["mc-reading", "type-reading"]);
+  const reading = readable.map((k, i) => examQuestion(S.byChar[k], rModes[i], "reading", 0));
+
+  // bonus: only senses the learner has actually been given
+  const bonusChars = chars.filter((k) => srsOf(k, "sense2") && senses(S.byChar[k]).length > 1);
+  const bonus = shuffle(bonusChars).slice(0, 6).map((k) =>
+    examQuestion(S.byChar[k], pick(["mc-meaning", "type-meaning"]), "sense2", 1));
+
+  return {
+    scope: sc, sampled: chars.length, total: all.length,
+    sections: [
+      { ...EXAM_SECTIONS[0], questions: meaning },
+      { ...EXAM_SECTIONS[1], questions: reading },
+      ...(bonus.length ? [{ ...EXAM_SECTIONS[2], questions: bonus }] : []),
+    ],
+  };
+}
+
+function gradeExamAnswer(q, given) {
+  if (q.choices) return { ok: given === q.answer };
+  return q.facet === "reading" ? gradeReading(given, q.row)
+                               : gradeMeaning(given, q.row, q.facet);
+}
+
+routes.exam = async (arg) => {
+  await loadState();
+  await loadCollections();
+  const sc = arg === "all" ? null : parseScope(arg || "");
+  if (!arg || (arg !== "all" && !sc)) return examPicker();
+  return examIntro(sc);
+};
+
+function examPicker() {
+  const res = activeScopes(false);
+  const rows = [...res.list.flatMap((s) => s.batches.map((b) => ({ cid: s.col.id, from: b.index, to: b.index }))),
+                ...res.list.map((s) => ({ cid: s.col.id, from: null, to: null }))];
+  setMain(`
+    <h1>Mastery exam</h1>
+    <p class="sub">A capstone for a set you've been working through. Feedback comes
+      at the end, nothing is re-asked, and it leaves your review schedule alone —
+      so a bad day costs you nothing but the time.</p>
+    ${rows.length ? `<div class="card"><div class="chart-title">Which set?</div>
+      <div class="scope-chips" style="margin-top:12px">
+        ${rows.map((sc) => `<button class="chip" onclick="location.hash='#/exam/${scopeSuffix(sc)}'">
+          ${esc(scopeLabel(sc))} <span class="chip-n">${(scopeChars(sc) || []).length}</span></button>`).join("")}
+      </div></div>`
+      : `<div class="card">Nothing in rotation yet. <a href="#/study">Start a batch</a> first.</div>`}
+  `);
+}
+
+function examHistory(sc) {
+  return ((S.settings.exams || {})[scopeSuffix(sc)] || []).slice().reverse();
+}
+
+function examIntro(sc) {
+  const chars = scopeChars(sc) || [];
+  const started = chars.filter((k) => kanjiStarted(k)).length;
+  const exam = buildExam(sc);
+  const count = exam.sections.reduce((a, s) => a + s.questions.length, 0);
+  const required = exam.sections.filter((s) => s.required).reduce((a, s) => a + s.questions.length, 0);
+  const past = examHistory(sc);
+  const best = past.reduce((a, r) => Math.max(a, r.score), 0);
+
+  setMain(`
+    <h1>Mastery exam · ${esc(scopeLabel(sc))}</h1>
+    <p class="sub">${exam.sampled} kanji${exam.total > exam.sampled
+      ? ` sampled from ${exam.total}` : ""} · ${count} questions${
+      count > required ? ` (${count - required} of them bonus)` : ""} · no timer.</p>
+
+    ${started < chars.length ? `<div class="card"><b>${chars.length - started} of ${chars.length}
+      kanji aren't in your rotation yet.</b> You can still sit the exam — just expect those
+      to be unfamiliar. <a href="#/study">Add them first</a> if you'd rather.</div>` : ""}
+
+    ${past.length ? `<div class="card">
+      <div class="chart-title">Previous attempts</div>
+      <div class="chart-sub">Best so far: <b>${Math.round(best * 100)}%</b></div>
+      <div class="hbars" style="margin-top:10px">
+        ${past.slice(0, 5).map((r) => `<div class="hb-row">
+          <span class="hb-label">${r.date}</span>
+          <div class="hb-track"><div class="hb-fill" style="width:${Math.round(r.score * 100)}%"></div></div>
+          <span class="hb-val">${Math.round(r.score * 100)}%${r.passed ? " ✓" : ""}</span>
+        </div>`).join("")}
+      </div></div>` : ""}
+
+    <div class="card">
+      <div class="chart-title">What it covers</div>
+      ${exam.sections.map((s) => `
+        <div class="exam-sec-intro">
+          <div class="esi-head"><span class="jp">${s.jp}</span> ${esc(s.title)}
+            <span class="pill">${s.questions.length} question${s.questions.length === 1 ? "" : "s"}</span>
+            ${s.required ? "" : `<span class="pill">bonus</span>`}</div>
+          <div class="chart-sub">${esc(s.blurb)}</div>
+        </div>`).join("")}
+    </div>
+
+    <div class="card">
+      <div class="chart-title">How it's marked</div>
+      <p class="chart-sub" style="margin:0">
+        Pass at <b>${Math.round(EXAM_PASS * 100)}%</b> overall, and at least
+        <b>${Math.round(EXAM_SECTION_FLOOR * 100)}%</b> in each required section — so you
+        can't pass on meaning alone while unable to read any of them.
+        <b>${Math.round(EXAM_STRONG * 100)}%</b> overall with
+        <b>${Math.round(EXAM_STRONG_SECTION * 100)}%</b> in both is a strong pass.
+        Bonus questions only ever add.</p>
+    </div>
+
+    <div class="row" style="margin-top:18px">
+      <button class="primary-btn" id="exam-start">Begin the exam</button>
+      <button class="ghost-btn" onclick="location.hash='#/review'">Not yet</button>
+    </div>`);
+  $("#exam-start").onclick = () => runExam(exam);
+}
+
+function runExam(exam) {
+  const flat = [];
+  exam.sections.forEach((s, si) => s.questions.forEach((q) => flat.push({ q, si })));
+  const sess = { exam, flat, pos: 0, answers: [], startedAt: Date.now() };
+  examCard(sess);
+}
+
+function examCard(sess) {
+  if (sess.pos >= sess.flat.length) return examResults(sess);
+  const { q, si } = sess.flat[sess.pos];
+  const sec = sess.exam.sections[si];
+  const pct = Math.round((sess.pos / sess.flat.length) * 100);
+  const t0 = Date.now();
+
+  let inner;
+  if (q.mode === "mc-kanji") {
+    inner = `<div class="q-prompt-text">${esc(senses(q.row)[q.senseIdx])}</div>
+      <div class="choices">${q.choices.map((c, i) =>
+        `<button class="choice jp" data-c="${esc(c)}"${fontStyle(q.font)}><span class="key-hint">${i + 1}</span>${c}</button>`).join("")}</div>`;
+  } else if (q.choices) {
+    const jp = q.mode === "mc-reading" ? "jp" : "";
+    inner = `<div class="q-prompt-kanji"${fontStyle(q.font)}>${q.row.k}</div>
+      <div class="choices">${q.choices.map((c, i) =>
+        `<button class="choice ${jp}" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}</div>`;
+  } else {
+    const isReading = q.mode === "type-reading";
+    inner = `<div class="q-prompt-kanji"${fontStyle(q.font)}>${q.row.k}</div>
+      <input class="type-input ${isReading ? "jp" : ""}" id="exam-in" autocomplete="off"
+             spellcheck="false" placeholder="${isReading ? "reading…" : "meaning…"}">
+      ${isReading ? `<div class="kana-preview" id="exam-kana"></div>` : ""}
+      <button class="primary-btn" id="exam-go" style="margin-top:14px">Answer ↵</button>`;
+  }
+
+  setMain(`
+    <div class="quiz-wrap">
+      <div class="session-scope">📋 Exam · ${esc(scopeLabel(sess.exam.scope))}
+        <span class="pill">no feedback until the end</span></div>
+      <div class="quiz-top">
+        <span>${sess.pos + 1} / ${sess.flat.length}</span>
+        <div class="meter q-progress"><i style="width:${pct}%"></i></div>
+        <span class="jp">${sec.jp}</span>
+      </div>
+      <div class="quiz-card">
+        <div class="q-kind">${esc(sec.title)}${sec.required ? "" : " · bonus"}${
+          q.senseIdx ? ` · another meaning of this kanji` : ""}</div>
+        ${q.senseIdx ? `<div class="sense-known">You already know
+          <b>${q.row.k}</b> = “${esc(senses(q.row)[0])}”.</div>` : ""}
+        ${inner}
+      </div>
+      <div class="row" style="justify-content:center;margin-top:14px">
+        <button class="ghost-btn" id="exam-quit">Abandon exam</button>
+      </div>
+    </div>`);
+
+  $("#exam-quit").onclick = () => {
+    if (confirm("Abandon this exam? Nothing will be recorded.")) location.hash = "#/review";
+  };
+
+  const record = (given) => {
+    const g = gradeExamAnswer(q, given);
+    sess.answers.push({ q, given, ok: !!g.ok, offTarget: !!(g.ok && g.other), ms: Date.now() - t0 });
+    // counts as evidence, like a drill, but never reschedules
+    api("/api/answer", { k: q.k, facet: q.facet, mode: q.mode, correct: g.ok ? 1 : 0,
+                         ms: Date.now() - t0, srs: false,
+                         on_target: g.ok && !g.other }).catch(() => {});
+    sess.pos++;
+    examCard(sess);
+  };
+
+  if (q.choices) {
+    const btns = [...document.querySelectorAll(".choice")];
+    btns.forEach((b) => (b.onclick = () => { btns.forEach((x) => (x.disabled = true)); record(b.dataset.c); }));
+    keyOnce((e) => {
+      if (e.repeat) return false;
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= btns.length && !btns[0].disabled) { e.preventDefault(); btns[n - 1].click(); return true; }
+      return false;
+    });
+  } else {
+    const input = $("#exam-in");
+    input.focus();
+    if (q.mode === "type-reading") {
+      input.addEventListener("input", () => { $("#exam-kana").textContent = toHiragana(input.value); });
+    }
+    const go = () => {
+      if (input.disabled) return;
+      input.disabled = true;
+      $("#exam-go").disabled = true;
+      record(input.value);
+    };
+    $("#exam-go").onclick = go;
+    keyOnce((e) => {
+      if (e.key !== "Enter" || e.repeat) return false;
+      e.preventDefault();
+      go();
+      return true;
+    });
+  }
+}
+
+/**
+ * Mark an exam. Pure, so the thresholds can be checked without a browser.
+ *
+ * Bonus questions lift the numerator but never the denominator, which is what
+ * "can only add, never subtract" means arithmetically: getting them wrong is
+ * identical to not having been asked, and getting them right can pull a
+ * borderline paper up.
+ */
+function scoreExam(sections, answers, flat) {
+  const bySection = sections.map((sec, si) => {
+    const rows = answers.filter((a, i) => flat[i].si === si);
+    const ok = rows.filter((a) => a.ok).length;
+    return { sec, rows, ok, n: rows.length, pct: rows.length ? ok / rows.length : 1 };
+  });
+  const req = bySection.filter((b) => b.sec.required);
+  const reqOk = req.reduce((a, b) => a + b.ok, 0);
+  const reqN = req.reduce((a, b) => a + b.n, 0);
+  const bonusOk = bySection.filter((b) => !b.sec.required).reduce((a, b) => a + b.ok, 0);
+  const score = reqN ? Math.min(1, (reqOk + bonusOk) / reqN) : 0;
+  const floor = req.length ? Math.min(...req.map((b) => b.pct)) : 1;
+  const passed = score >= EXAM_PASS && floor >= EXAM_SECTION_FLOOR;
+  const strong = passed && score >= EXAM_STRONG && floor >= EXAM_STRONG_SECTION;
+  return { bySection, score, floor, passed, strong };
+}
+
+async function examResults(sess) {
+  const { exam } = sess;
+  const { bySection, score, floor, passed, strong } =
+    scoreExam(exam.sections, sess.answers, sess.flat);
+  const req = bySection.filter((b) => b.sec.required);
+
+  // per-mode diagnosis: typed vs multiple choice is the useful split
+  const byMode = {};
+  sess.answers.forEach((a) => {
+    const m = byMode[a.q.mode] || (byMode[a.q.mode] = { ok: 0, n: 0 });
+    m.n++; if (a.ok) m.ok++;
+  });
+
+  const missed = sess.answers.filter((a) => !a.ok);
+  S.examMissed = [...new Set(missed.map((a) => a.q.k))];
+
+  const mins = Math.max(1, Math.round((Date.now() - sess.startedAt) / 60000));
+  const attempt = { date: new Date().toISOString().slice(0, 10), score: Math.round(score * 1000) / 1000,
+                    passed, strong, questions: sess.answers.length, minutes: mins };
+  const store = { ...(S.settings.exams || {}) };
+  store[scopeSuffix(exam.scope)] = [...(store[scopeSuffix(exam.scope)] || []), attempt];
+  S.settings.exams = store;
+  await api("/api/settings", { exams: store }).catch(() => {});
+
+  const stamp = strong ? { k: "優", en: "Distinction", cls: "strong" }
+    : passed ? { k: "合格", en: "Passed", cls: "pass" }
+    : { k: "未だ", en: "Not yet", cls: "notyet" };
+
+  setMain(`
+    <div class="quiz-wrap session-done">
+      <div class="exam-stamp ${stamp.cls}"><span class="jp">${stamp.k}</span><span>${stamp.en}</span></div>
+      <h1>${esc(scopeLabel(exam.scope))}</h1>
+      <p class="sub">${Math.round(score * 100)}% over ${sess.answers.length} questions · ${mins}m</p>
+
+      <div class="card chart-card" style="text-align:left">
+        <div class="chart-title">By section</div>
+        <div class="hbars" style="margin-top:8px">
+          ${bySection.map((b) => `<div class="hb-row">
+            <span class="hb-label">${esc(b.sec.title.split(" ")[0])}${b.sec.required ? "" : " (bonus)"}</span>
+            <div class="hb-track"><div class="hb-fill" style="width:${Math.round(b.pct * 100)}%;${
+              b.sec.required && b.pct < EXAM_SECTION_FLOOR ? "background:var(--bad)" : ""}"></div></div>
+            <span class="hb-val">${b.ok}/${b.n}</span></div>`).join("")}
+        </div>
+        <div class="chart-sub" style="margin-top:10px">By question type —
+          ${Object.entries(byMode).map(([m, v]) =>
+            `${esc(MODE_LABEL[m] ? m.replace("mc-", "choose ").replace("type-", "type ") : m)} ${v.ok}/${v.n}`).join(" · ")}</div>
+        ${!passed ? `<p class="sub" style="margin:12px 0 0">${floor < EXAM_SECTION_FLOOR
+          ? `One section fell below ${Math.round(EXAM_SECTION_FLOOR * 100)}% — that's the part to work on before retaking.`
+          : `Close. ${Math.round(EXAM_PASS * 100)}% overall is the bar.`}</p>` : ""}
+      </div>
+
+      ${missed.length ? `
+      <div class="card chart-card" style="text-align:left">
+        <div class="chart-title">What went wrong (${missed.length})</div>
+        <div class="chart-sub">Click a kanji to see where it stands.</div>
+        <div class="exam-misses">
+          ${missed.map((a) => `
+            <div class="exam-miss" data-k="${a.q.k}">
+              <span class="em-k jp">${a.q.k}</span>
+              <span class="em-body">
+                <span class="em-mode">${esc(a.q.mode.replace("mc-", "choose ").replace("type-", "type "))}</span>
+                <span class="em-gave">you said ${a.given && String(a.given).trim()
+                  ? `“${esc(String(a.given))}”` : "nothing"}</span>
+                <span class="em-want">answer: <b>${esc(String(a.q.answer))}</b></span>
+              </span>
+            </div>`).join("")}
+        </div>
+      </div>` : `<div class="card"><b>Nothing missed.</b> Every question, every angle.</div>`}
+
+      <div class="next-up">
+        ${S.examMissed.length ? `<button class="primary-btn" onclick="location.hash='#/drill/missed'">
+          🎯 Drill the ${S.examMissed.length} you missed</button>` : ""}
+        <button class="ghost-btn" onclick="location.hash='#/exam/${scopeSuffix(exam.scope)}'">Retake</button>
+        <button class="ghost-btn" onclick="location.hash='${scopeHash(exam.scope)}'">Review this set</button>
+        <button class="ghost-btn" onclick="location.hash='#/';location.reload()">Dashboard</button>
+      </div>
+    </div>`);
+  document.querySelectorAll(".exam-miss").forEach((el) => {
+    el.onclick = () => S.byChar[el.dataset.k] && kanjiModal(el.dataset.k);
+  });
+}
 
 // ================================================================ stats
 

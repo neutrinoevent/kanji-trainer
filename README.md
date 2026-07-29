@@ -50,6 +50,16 @@ everything else in the app.
 
 ## Features
 
+- **A mastery exam to crown a batch.** When you've finished a set, sit an exam on
+  it. One question per kanji on meaning and one on reading, with the question
+  types spread so every paper contains recognition, reverse recall and unaided
+  typing — about fifty questions for a batch of twenty-five, no timer. Feedback
+  comes at the end, nothing is re-asked, and it leaves your review schedule
+  completely alone, so a bad day costs nothing but the time. Pass at 80% overall
+  *and* 70% in each section, so you can't pass on meaning alone while unable to
+  read any of them. Second meanings appear only where you've already unlocked
+  them, as bonus marks that can add to your score but never subtract. The result
+  itemises every miss and offers to drill exactly those kanji.
 - **Review what you're actually studying.** The Review page lets you review
   everything at once, or narrow it to one set, one batch, or one goal. Sets
   overlap — a kanji can be in Frequency, Grade 1 and N5 at the same time — so
