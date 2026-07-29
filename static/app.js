@@ -3195,6 +3195,38 @@ function examIntro(sc) {
       ? ` sampled from ${exam.total}` : ""} · ${count} questions${
       count > required ? ` (${count - required} of them bonus)` : ""} · no timer.</p>
 
+    <div class="card exam-brief">
+      <div class="chart-title">Before you begin</div>
+      <p>This is a capstone for <b>${esc(scopeLabel(sc))}</b> — the ${exam.sampled}
+        kanji you've been working through. <b>Nothing in it is new.</b> Every question
+        asks something you have already practised, in a form you have already seen. The
+        exam just asks for all of it at once, without hints, and without a second go at
+        any single item.</p>
+      <p class="exam-brief-h">What you'll be asked to do</p>
+      <ul class="exam-brief-list">
+        <li><b>Recognise each kanji</b> and give its most common meaning.</li>
+        <li><b>Go the other way</b> — from a meaning, pick out the kanji.</li>
+        <li><b>Say each one aloud</b>, the way you'd read it off a sign.</li>
+        <li><b>Type some from memory</b>, with no options to choose from.</li>
+        ${exam.sections.some((x) => !x.required)
+          ? `<li><b>Bonus:</b> a few second meanings you've already unlocked. These can
+               add to your score and can never take from it.</li>` : ""}
+      </ul>
+      <p class="exam-brief-h">What it costs you</p>
+      <p>Nothing. There's no timer. It doesn't touch your review schedule, so a shaky
+        run can't undo weeks of work. You can retake it as often as you like. A miss
+        costs you a line in the report at the end, and that's all.</p>
+      <p class="exam-brief-h">What passing means</p>
+      <p class="exam-claim">Clear this and you'll be able to say, and mean it:
+        <i>“I can recognise every one of the ${exam.sampled} kanji in
+        ${esc(scopeLabel(sc))}, give the most common meaning of each, and read each one
+        aloud.”</i></p>
+      <p>That's a real claim about what you can do — checkable, not a participation
+        mark. And if it doesn't go your way this time, the report names exactly which
+        kanji and which kind of question caught you out, and offers to drill precisely
+        those. Then you come back and take it again.</p>
+    </div>
+
     ${started < chars.length ? `<div class="card"><b>${chars.length - started} of ${chars.length}
       kanji aren't in your rotation yet.</b> You can still sit the exam — just expect those
       to be unfamiliar. <a href="#/study">Add them first</a> if you'd rather.</div>` : ""}
@@ -3387,6 +3419,26 @@ async function examResults(sess) {
   store[scopeSuffix(exam.scope)] = [...(store[scopeSuffix(exam.scope)] || []), attempt];
   S.settings.exams = store;
   await api("/api/settings", { exams: store }).catch(() => {});
+
+  // Certification-grade record, sealed and chained server-side. Sent with the
+  // resolved kanji and the thresholds in force, because a certificate awarded
+  // later has to know what was actually examined and under which rubric — a
+  // scope name alone means different characters if batch_size ever changes.
+  await api("/api/exam", {
+    scope: { suffix: scopeSuffix(exam.scope), name: scopeLabel(exam.scope),
+             collection: exam.scope ? exam.scope.cid : null,
+             from: exam.scope ? exam.scope.from : null,
+             to: exam.scope ? exam.scope.to : null },
+    batch_size: S.settings.batch_size,
+    kanji: [...new Set(sess.flat.map((f) => f.q.k))].join(""),
+    sections: bySection.map((b) => ({ id: b.sec.id, required: !!b.sec.required,
+                                      ok: b.ok, n: b.n })),
+    by_mode: byMode,
+    score, floor, passed, strong,
+    thresholds: { pass: EXAM_PASS, section: EXAM_SECTION_FLOOR,
+                  strong: EXAM_STRONG, strong_section: EXAM_STRONG_SECTION },
+    questions: sess.answers.length, minutes: mins,
+  }).catch(() => {});
 
   const stamp = strong ? { k: "優", en: "Distinction", cls: "strong" }
     : passed ? { k: "合格", en: "Passed", cls: "pass" }

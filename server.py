@@ -8,6 +8,7 @@ and implements the SM-2-style spaced-repetition scheduler.
 Usage:  python server.py [port]     (default port 7777)
 """
 
+import hashlib
 import json
 import os
 import re
@@ -22,6 +23,7 @@ from urllib.parse import urlparse, parse_qs
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(BASE_DIR, "data", "kanji.json")
 DB_FILE = os.path.join(BASE_DIR, "data", "trainer.db")
+EXAM_LOG_FILE = os.path.join(BASE_DIR, "data", "exam-log.jsonl")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 DEFAULT_SETTINGS = {
@@ -151,6 +153,22 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_reviews_day ON reviews(day);
         CREATE INDEX IF NOT EXISTS idx_reviews_kanji ON reviews(kanji);
+        -- Append-only record of every exam sat. Separate from settings because a
+        -- certificate awarded months from now has to be back-confirmable even if
+        -- settings were reset, and because an audit log should not live in a blob
+        -- the UI rewrites on every change.
+        CREATE TABLE IF NOT EXISTS exam_log (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,   -- insertion order, authoritative
+            id TEXT NOT NULL UNIQUE,
+            ts TEXT NOT NULL,             -- UTC ISO
+            scope TEXT NOT NULL,          -- scope suffix, e.g. c/g1/0
+            passed INTEGER NOT NULL,
+            score REAL NOT NULL,
+            prev TEXT,                    -- digest of the previous entry
+            digest TEXT NOT NULL,
+            payload TEXT NOT NULL         -- the full sealed record as JSON
+        );
+        CREATE INDEX IF NOT EXISTS idx_exam_scope ON exam_log(scope);
         """
     )
     # Migration: distinguish "correct" from "on target". Typing a real but
@@ -719,6 +737,127 @@ def get_stats(settings):
     }
 
 
+# ---------------------------------------------------------------- exam records
+#
+# Exams will eventually produce shareable certificates. Whatever that system
+# looks like, it will need to certify exams sat *before* it existed, so every
+# attempt is recorded now with enough context to be judged later:
+#
+#   * the resolved kanji, not just the scope name — "c/g1/0" resolves to
+#     different characters if batch_size changes, so the scope alone would not
+#     identify what was examined
+#   * the thresholds in force at the time, so a certificate can state which
+#     rubric was met rather than assuming today's rules always applied
+#   * a digest chained to the previous record, so deletion or reordering of
+#     history is detectable
+#
+# Honest limit: this is a local app with no secret, so the chain detects
+# corruption and tampering-by-accident, and gives a future signing service
+# something meaningful to attest. It is NOT proof against a determined user
+# editing their own files. Real verifiability needs an authority to sign, which
+# is a hosting decision (see docs/PARKED-phone-access-and-sync.md).
+
+EXAM_RUBRIC = "exam-v1"
+EXAM_RECORD_VERSION = 1
+
+
+def _canonical(obj):
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def last_exam_digest():
+    row = db().execute(
+        "SELECT digest FROM exam_log ORDER BY seq DESC LIMIT 1"
+    ).fetchone()
+    return row["digest"] if row else None
+
+
+def seal_exam(body):
+    """Turn a submitted attempt into an immutable, chained record."""
+    now = now_utc()
+    rec = {
+        "v": EXAM_RECORD_VERSION,
+        "app": "kanji-trainer",
+        "rubric": EXAM_RUBRIC,
+        "ts": iso(now),
+        "local_date": today_local(),
+        "scope": body.get("scope") or {},
+        "batch_size": body.get("batch_size"),
+        "kanji": body.get("kanji") or "",
+        "sections": body.get("sections") or [],
+        "by_mode": body.get("by_mode") or {},
+        "score": round(float(body.get("score") or 0), 4),
+        "floor": round(float(body.get("floor") or 0), 4),
+        "passed": bool(body.get("passed")),
+        "strong": bool(body.get("strong")),
+        "thresholds": body.get("thresholds") or {},
+        "questions": int(body.get("questions") or 0),
+        "minutes": int(body.get("minutes") or 0),
+    }
+    rec["prev"] = last_exam_digest()
+    rec["id"] = "ex_" + now.strftime("%Y%m%dT%H%M%SZ") + "_" + \
+        hashlib.sha256(_canonical(rec).encode("utf-8")).hexdigest()[:8]
+    rec["digest"] = hashlib.sha256(_canonical(rec).encode("utf-8")).hexdigest()
+
+    conn = db()
+    conn.execute(
+        "INSERT OR IGNORE INTO exam_log(id,ts,scope,passed,score,prev,digest,payload)"
+        " VALUES(?,?,?,?,?,?,?,?)",
+        (rec["id"], rec["ts"], (rec["scope"] or {}).get("suffix", ""),
+         1 if rec["passed"] else 0, rec["score"], rec["prev"], rec["digest"],
+         _canonical(rec)),
+    )
+    conn.commit()
+
+    # Third copy, deliberately outside the database: a plain append-only file
+    # survives a corrupt or deleted trainer.db, and can be read by anything.
+    try:
+        with open(EXAM_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(_canonical(rec) + "\n")
+    except OSError:
+        pass          # the two database copies are still authoritative
+    return rec
+
+
+def exam_log_rows():
+    return [json.loads(r["payload"])
+            for r in db().execute("SELECT payload FROM exam_log ORDER BY seq")]
+
+
+def verify_exam_chain():
+    """Re-derive every digest, then walk the chain from its root.
+
+    Walking by `prev` rather than trusting stored order is what makes this
+    meaningful across an import: records arrive from someone else's database
+    where the sequence numbers were different, but the digest links are not.
+    """
+    recs = exam_log_rows()
+    problems = []
+    by_prev, digests = {}, set()
+    for rec in recs:
+        body = {k: v for k, v in rec.items() if k != "digest"}
+        if hashlib.sha256(_canonical(body).encode("utf-8")).hexdigest() != rec.get("digest"):
+            problems.append({"id": rec.get("id"), "problem": "digest does not match contents"})
+        digests.add(rec.get("digest"))
+        by_prev.setdefault(rec.get("prev"), []).append(rec)
+
+    walked, cursor = 0, None
+    while by_prev.get(cursor):
+        branch = by_prev[cursor]
+        if len(branch) > 1:
+            problems.append({"id": branch[1].get("id"),
+                             "problem": "two records claim the same predecessor"})
+        cursor = branch[0].get("digest")
+        walked += 1
+    if walked != len(recs):
+        orphans = [r.get("id") for r in recs
+                   if r.get("prev") is not None and r.get("prev") not in digests]
+        problems.append({"problem": f"chain reaches {walked} of {len(recs)} records",
+                         "orphans": orphans})
+    return {"entries": len(recs), "chained": walked,
+            "ok": not problems, "problems": problems}
+
+
 # ---------------------------------------------------------------- http
 
 MIME = {
@@ -830,6 +969,10 @@ class Handler(BaseHTTPRequestHandler):
                  "chars": collection_chars(c["id"], settings)}
                 for c in COLLECTIONS.values()
             ])
+        if path == "/api/exams":
+            return self.send_json({"rubric": EXAM_RUBRIC,
+                                   "entries": exam_log_rows(),
+                                   "chain": verify_exam_chain()})
         if path == "/api/card":
             q = parse_qs(url.query)
             k = (q.get("k") or [""])[0]
@@ -856,6 +999,7 @@ class Handler(BaseHTTPRequestHandler):
                 "settings": settings,
                 "srs": [dict(r) for r in db().execute("SELECT * FROM srs")],
                 "reviews": [dict(r) for r in db().execute("SELECT * FROM reviews")],
+                "exam_log": exam_log_rows(),
             }
             return self.send_json(dump)
         self.send_json({"error": "not found"}, 404)
@@ -919,6 +1063,9 @@ class Handler(BaseHTTPRequestHandler):
                 apply_answer(kanji, facet, correct)
             return self.send_json({"ok": True})
 
+        if path == "/api/exam":
+            return self.send_json({"ok": True, "record": seal_exam(body)})
+
         if path == "/api/import":
             if body.get("version") != 1:
                 return self.send_json({"error": "unsupported export version"}, 400)
@@ -943,6 +1090,17 @@ class Handler(BaseHTTPRequestHandler):
                      r.get("ms"), r.get("srs", 1), r["ts"], r["day"],
                      r.get("on_target", r["correct"])),
                 )
+            # Exam records are append-only history, so an import adds any it
+            # doesn't already hold rather than clearing the table first.
+            for rec in body.get("exam_log") or []:
+                if not rec.get("id") or not rec.get("digest"):
+                    continue
+                conn.execute(
+                    "INSERT OR IGNORE INTO exam_log(id,ts,scope,passed,score,prev,digest,payload)"
+                    " VALUES(?,?,?,?,?,?,?,?)",
+                    (rec["id"], rec.get("ts", ""), (rec.get("scope") or {}).get("suffix", ""),
+                     1 if rec.get("passed") else 0, float(rec.get("score") or 0),
+                     rec.get("prev"), rec["digest"], _canonical(rec)))
             conn.commit()
             return self.send_json({"ok": True})
 

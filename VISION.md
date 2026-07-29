@@ -959,6 +959,86 @@ passed), goal cards, and a new Exams tab.
 
 ---
 
+## V-011 — The exam brief, and records built to be certified later (raised 2026-07-29)
+
+### The brief
+
+The exam opened straight onto its own mechanics. It now opens on a page that
+explains what the exam is, primes the learner honestly, names the topic, and
+says what passing will let them claim.
+
+**D1 — The encouragement has to be true to be worth anything.** The line doing
+the real work is *"Nothing in it is new. Every question asks something you have
+already practised, in a form you have already seen."* That is a factual
+statement about how the exam is built — it draws only on the scope's kanji and
+only on question types the learner has already met in review — and it is far
+more settling than any amount of "you can do it!". Empty encouragement is
+already banned by this project's copy rules; accurate encouragement is not.
+
+**D2 — Name the claim they'll earn.** *"Clear this and you'll be able to say, and
+mean it: 'I can recognise every one of the 25 kanji in Grade 1 · Batch 1, give
+the most common meaning of each, and read each one aloud.'"* Built from the live
+scope and count, so it is specific rather than generic. Then, plainly: that's a
+checkable claim, not a participation mark. A goal you can state in a sentence is
+worth more than a percentage.
+
+**D3 — Remove the stakes explicitly.** No timer, the review schedule is
+untouched, retake freely, a miss costs a line in the report. Learners avoid
+assessments they think can hurt them, and this one genuinely can't — so say so
+before they start rather than hoping they infer it.
+
+**D4 — Say what happens if they fail, before they begin.** The report names the
+kanji and the question type, and offers to drill exactly those. Knowing the
+failure path is gentle is part of being willing to try.
+
+### Records built to be certified later
+
+Shareable certificates are coming. Whatever they end up looking like, they will
+need to certify exams sat *before* that system existed, so every attempt is now
+recorded with enough context to be judged retroactively.
+
+**D5 — Store the resolved kanji, not just the scope name.** `c/g1/0` resolves to
+different characters if `batch_size` changes. A record naming only the scope
+could not later prove *what* was examined. Each record carries the actual
+character string.
+
+**D6 — Store the rubric in force.** Thresholds may change between versions. A
+certificate should be able to say which bar was cleared, so `thresholds` and a
+`rubric` tag (`exam-v1`) travel with the record rather than being assumed from
+whatever the code says at certification time.
+
+**D7 — Three copies, deliberately different in kind.** `settings.exams` holds a
+compact summary for the UI; an append-only `exam_log` table holds the sealed
+records; `data/exam-log.jsonl` holds the same records as plain text outside the
+database entirely. The file survives a corrupt or deleted `trainer.db` and can be
+read by anything. It is in the updater's PRESERVE set and gitignored.
+
+**D8 — Chain the records.** Each carries a SHA-256 digest of its own contents
+and the digest of its predecessor, so editing, deleting or reordering history is
+detectable. Verification *walks the chain* by `prev` rather than trusting stored
+order, which is what makes it meaningful across an import from another machine
+where the sequence numbers were different.
+
+> **Bug found while testing this, in my own chain.** `last_exam_digest()`
+> originally ordered by `ts DESC, id DESC`. Several attempts can land in the same
+> second, and the id's hash suffix does not sort chronologically — so two
+> records ended up claiming the same predecessor and the chain forked
+> immediately. Fixed with an autoincrementing `seq` as the authoritative local
+> order. Timestamps are not an ordering.
+
+**D9 — Be honest about what "confirmable" can mean here.** This is a local app
+with no secret. The chain detects corruption and casual tampering, and gives a
+future signing service something meaningful to attest — verified: forging a 0.72
+into a pass directly in the database is caught immediately, and the plain-text
+copy still holds the truth. But it is **not** proof against a determined user
+editing their own files, and it must never be presented as such. Real
+verifiability needs an authority to sign, which is a hosting decision — see
+`docs/PARKED-phone-access-and-sync.md`. Building the chain now costs almost
+nothing and means the history will be worth signing when there is something to
+sign it with.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.
