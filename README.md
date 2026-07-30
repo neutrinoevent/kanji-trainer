@@ -50,6 +50,13 @@ everything else in the app.
 
 ## Features
 
+- **Your own lists.** Group kanji however you like — the ones you keep missing, a
+  set for a trip, whatever. A list can be reviewed, drilled, played as a game or
+  sat as an exam exactly like a built-in set. Add a kanji to one from wherever you
+  happen to be: mid-review, on the batches grid, from your stats, from an exam
+  report. Optional templates can seed a new list from your most-missed kanji or by
+  copying a batch. Adding a kanji to a list doesn't start it studying, and
+  deleting a list never touches your progress.
 - **A mastery exam to crown a batch.** When you've finished a set, sit an exam on
   it. One question per kanji on meaning and one on reading, with the question
   types spread so every paper contains recognition, reverse recall and unaided

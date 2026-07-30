@@ -1039,6 +1039,80 @@ sign it with.
 
 ---
 
+## V-012 — Lists: kanji the user groups themselves (raised 2026-07-29)
+
+### The idea
+
+Custom sets, creatable and manageable by the user, addable from anywhere in the
+flow — mid-review a learner may want to file a particular kanji away — with
+optional templates during creation that must not push themselves on anyone.
+
+### D1 — Called "lists", not "collections"
+
+`collection` already means the built-in tracks throughout this codebase:
+`COLLECTIONS`, the `collection=` API parameter, `colById`, `collection_chars()`.
+Overloading it would have made every scope-resolving function ambiguous about
+which kind of thing it held. "Lists" is unused, unambiguous, and reads naturally
+in the place it matters most — *add 日 to a list*.
+
+### D2 — A list is just another scope
+
+This is the decision that made the feature small instead of large. Review, drill,
+the eight games and the mastery exam already accept a scope. Teaching
+`parseScope` / `scopeSuffix` / `scopeChars` / `scopeLabel` a fourth form
+(`l/<id>`), and teaching the server's `scope_chars()` to resolve a list id, made
+every one of those work on a list without any of them knowing lists exist.
+
+Verified: review, drill, exam, match and lightning all scoped to a six-kanji list
+show zero kanji from outside it, and the list appears as an option in the review
+hub, the games hub and the exam picker.
+
+### D3 — A list is a grouping and nothing more
+
+Adding a kanji to a list does not start it in the rotation. Deleting a list does
+not delete anything else. This is the property that makes lists safe to
+experiment with, and it was worth proving rather than assuming: create, add,
+remove, wholesale replace, rename and **delete** were run in sequence, and every
+SRS row came back byte-identical with the review count unchanged. The delete
+confirmation says so in as many words.
+
+### D4 — Templates are opt-in and quiet
+
+A dropdown defaulting to **Start empty**, sitting as one control among several
+rather than a wizard step you have to clear. Nothing suggests using one. They
+exist because "the twenty I keep missing" is tedious to assemble by hand — not
+because a list ought to come from a template. The set: start empty, most-missed
+kanji, in rotation but not yet operative, copy a set or batch, copy another list.
+The extra control a template needs (which set? which list?) appears only when
+that template is chosen, and a live preview shows what you'd get before you
+commit.
+
+### D5 — Adding works wherever a kanji is on screen
+
+A `＋ List` control on the review/drill feedback panel, on the first-meeting intro
+card, in the kanji detail modal (which is itself reached from the batch grid, the
+stats most-missed list, the exam miss report and a list's own members), and on
+every cell of the batch grid. One popover, one binding helper, no per-screen
+special cases.
+
+**The subtlety worth recording:** the popover contains a text input for naming a
+new list, and it can be opened mid-card. Typing a name and pressing Enter would
+otherwise have advanced the review card underneath — the same class of bug as
+V-006's focus-during-keydown. The popover sets `S.pickerOpen`, the quiz's Enter
+handlers stand down while it is true, the input stops propagation, and navigating
+away closes it. Verified: with the picker open mid-review, Enter does not advance
+the card.
+
+### Not done yet
+
+- No list ordering or nesting; lists sit in creation order.
+- No sharing or export of a list on its own — the whole-progress JSON export
+  carries them, which is enough for moving between machines.
+- No auto-lists (e.g. a live "everything I missed this week"). A list is a
+  deliberate act right now, which is easier to reason about.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.

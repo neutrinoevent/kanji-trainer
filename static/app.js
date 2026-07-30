@@ -464,6 +464,7 @@ const routes = {};
 function navigate() {
   // drop any quiz/game key handler left over from the previous screen
   if (keyHandler) { document.removeEventListener("keydown", keyHandler); keyHandler = null; }
+  closeListPicker();
   const hash = location.hash || "#/";
   const [_, name, arg] = hash.match(/^#\/([\w-]*)\/?(.*)$/) || [];
   const view = routes[name || "dashboard"] || routes.dashboard;
@@ -826,7 +827,7 @@ async function batchDetail(cid, i) {
       ${chunk.map((r) => {
         const m = srsOf(r.k, "meaning"), rd = srsOf(r.k, "reading");
         const cls = (s) => (s ? (s.state === "new" ? "" : s.state) : "");
-        return `<div class="kanji-cell" data-k="${r.k}">${r.k}<span class="st ${cls(m)}" title="meaning"></span><span class="st ${cls(rd)}" title="reading"></span></div>`;
+        return `<div class="kanji-cell" data-k="${r.k}">${r.k}<span class="st ${cls(m)}" title="meaning"></span><span class="st ${cls(rd)}" title="reading"></span><button class="lm-x lm-add" data-list-add="${r.k}" title="Add to a list">＋</button></div>`;
       }).join("")}
     </div>
   `);
@@ -841,8 +842,9 @@ async function batchDetail(cid, i) {
     }
   };
   document.querySelectorAll(".kanji-cell").forEach((el) => {
-    el.onclick = () => kanjiModal(el.dataset.k);
+    el.onclick = (e) => { if (!e.target.dataset.listAdd) kanjiModal(el.dataset.k); };
   });
+  bindListButtons($("#main"));
 }
 
 function kanjiModal(k) {
@@ -875,8 +877,11 @@ function kanjiModal(k) {
       ${srsOf(k, "sense2") ? `<dt>Meaning 2 card</dt><dd>${srsLine("sense2")}</dd>` : ""}
       ${srsOf(k, "sense3") ? `<dt>Meaning 3 card</dt><dd>${srsLine("sense3")}</dd>` : ""}
     </dl>
+    <div class="row" style="margin:4px 0 12px">${listBtn(r.k)}${
+      listsContaining(k).map((l) => `<span class="pill">in ${esc(l.name)}</span>`).join("")}</div>
     <a href="https://jisho.org/search/${encodeURIComponent(r.k)}%20%23kanji" target="_blank" rel="noopener" style="color:var(--accent)">Look up on jisho.org ↗</a>
   `);
+  bindListButtons($("#modal-root"));
   // Spell out what is still missing before a card counts as operative, so the
   // bar is legible instead of mysterious.
   for (const facet of ["meaning", "reading"]) {
@@ -897,6 +902,165 @@ function kanjiModal(k) {
 
 // ================================================================ review session
 
+// ================================================================ lists
+//
+// Kanji the user has grouped themselves. Called "lists" rather than
+// "collections" because that word already means the built-in tracks throughout
+// this codebase — COLLECTIONS, the `collection=` API parameter, colById — and
+// overloading it would make every scope-resolving function ambiguous.
+//
+// A list is purely a grouping. Adding a kanji to one does not start it in the
+// review rotation, and deleting a list never touches SRS records, review
+// history or exam results. That separation is what makes lists safe to
+// experiment with.
+
+const lists = () => S.settings?.lists || [];
+const listById = (id) => lists().find((l) => l.id === id) || null;
+/** Members as an array, dropping anything not in the dataset. */
+const listKanji = (l) => Array.from(l.kanji || "").filter((k) => S.byChar[k]);
+
+async function saveLists(next) {
+  S.settings.lists = next;
+  await api("/api/settings", { lists: next });
+}
+
+function newListId() {
+  return "l" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+}
+
+async function createList(name, kanji, note) {
+  const l = { id: newListId(), name: (name || "Untitled list").slice(0, 60),
+              kanji: dedupeKanji(kanji), note: (note || "").slice(0, 200),
+              created: new Date().toISOString().slice(0, 10) };
+  await saveLists([...lists(), l]);
+  return l;
+}
+
+/** Order-preserving dedupe, so a list never holds the same kanji twice. */
+function dedupeKanji(input) {
+  const src = Array.isArray(input) ? input : Array.from(input || "");
+  const seen = new Set();
+  let out = "";
+  for (const k of src) {
+    if (S.byChar[k] && !seen.has(k)) { seen.add(k); out += k; }
+  }
+  return out;
+}
+
+async function setListKanji(id, kanji) {
+  await saveLists(lists().map((l) => (l.id === id ? { ...l, kanji: dedupeKanji(kanji) } : l)));
+}
+
+async function toggleInList(id, kanji) {
+  const l = listById(id);
+  if (!l) return false;
+  const has = listKanji(l).includes(kanji);
+  await setListKanji(id, has ? listKanji(l).filter((k) => k !== kanji) : [...listKanji(l), kanji]);
+  return !has;
+}
+
+async function renameList(id, name) {
+  await saveLists(lists().map((l) => (l.id === id ? { ...l, name: name.slice(0, 60) } : l)));
+}
+
+async function deleteList(id) {
+  await saveLists(lists().filter((l) => l.id !== id));
+}
+
+const listsContaining = (k) => lists().filter((l) => listKanji(l).includes(k));
+
+// ---------------------------------------------------------------- add from anywhere
+//
+// The picker has to be usable in the middle of a review card without hijacking
+// the session. It sets S.pickerOpen so the quiz's Enter handler stands down
+// while it's up — otherwise typing a new list name and pressing Enter would
+// advance the card underneath.
+
+function closeListPicker() {
+  const el = $("#list-picker");
+  if (el) el.remove();
+  S.pickerOpen = false;
+}
+
+/** Small popover anchored to a button: tick lists, or make a new one. */
+function openListPicker(kanji, anchor) {
+  closeListPicker();
+  S.pickerOpen = true;
+  const el = document.createElement("div");
+  el.id = "list-picker";
+  el.className = "list-picker";
+  const render = () => {
+    const mine = lists();
+    el.innerHTML = `
+      <div class="lp-head"><span class="jp">${kanji}</span> add to a list</div>
+      ${mine.length ? `<div class="lp-items">
+        ${mine.map((l) => {
+          const on = listKanji(l).includes(kanji);
+          return `<button class="lp-item ${on ? "on" : ""}" data-id="${l.id}">
+            <span class="lp-check">${on ? "✓" : "＋"}</span>
+            <span class="lp-name">${esc(l.name)}</span>
+            <span class="lp-n">${listKanji(l).length}</span></button>`;
+        }).join("")}
+      </div>` : `<div class="lp-empty">No lists yet.</div>`}
+      <div class="lp-new">
+        <input id="lp-name" placeholder="New list…" autocomplete="off" maxlength="60">
+        <button class="ghost-btn sm" id="lp-add">Create &amp; add</button>
+      </div>
+      <div class="lp-foot"><a href="#/lists" id="lp-manage">Manage lists</a></div>`;
+
+    el.querySelectorAll(".lp-item").forEach((b) => {
+      b.onclick = async (e) => {
+        e.stopPropagation();
+        const added = await toggleInList(b.dataset.id, kanji);
+        render();
+        toast(`${kanji} ${added ? "added to" : "removed from"} ${esc(listById(b.dataset.id).name)}`);
+      };
+    });
+    const nameEl = el.querySelector("#lp-name");
+    const create = async () => {
+      const name = nameEl.value.trim();
+      if (!name) return;
+      const l = await createList(name, [kanji]);
+      render();
+      toast(`${kanji} added to ${esc(l.name)}`);
+    };
+    el.querySelector("#lp-add").onclick = (e) => { e.stopPropagation(); create(); };
+    // keep Enter inside the popover; the card underneath must not advance
+    nameEl.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter" && !e.repeat) { e.preventDefault(); create(); }
+      if (e.key === "Escape") closeListPicker();
+    };
+    el.querySelector("#lp-manage").onclick = () => closeListPicker();
+  };
+  render();
+  document.body.appendChild(el);
+
+  const r = anchor.getBoundingClientRect();
+  el.style.left = Math.max(8, Math.min(r.left, innerWidth - el.offsetWidth - 8)) + "px";
+  el.style.top = (r.bottom + 6 + el.offsetHeight > innerHeight
+    ? Math.max(8, r.top - el.offsetHeight - 6) : r.bottom + 6) + "px";
+
+  setTimeout(() => {
+    document.addEventListener("click", function away(ev) {
+      if (el.contains(ev.target)) return;
+      document.removeEventListener("click", away);
+      closeListPicker();
+    });
+  }, 0);
+}
+
+/** The ＋ button that opens the picker. Drop it anywhere a kanji is on screen. */
+const listBtn = (kanji, extra = "") =>
+  `<button class="list-add-btn ${extra}" data-list-add="${kanji}"
+           title="Add ${kanji} to a list">＋ List</button>`;
+
+function bindListButtons(root) {
+  (root || document).querySelectorAll("[data-list-add]").forEach((b) => {
+    b.onclick = (e) => { e.stopPropagation(); openListPicker(b.dataset.listAdd, b); };
+  });
+}
+
 // ================================================================ review scopes
 //
 // Review used to be all-or-nothing: every card in rotation, whatever the
@@ -905,9 +1069,17 @@ function kanjiModal(k) {
 // an optional inclusive batch range; `null` means everything, which stays the
 // default and is still one click away.
 
-/** "#/review/c/g1/0" or "#/review/c/g1/0-2" -> {cid, from, to}; null = everything. */
+/**
+ * "#/review/c/g1/0", "#/review/c/g1/0-2" or "#/review/l/<listId>" -> a scope.
+ * null means everything.
+ *
+ * A user-made list is deliberately just another scope. That is what lets review,
+ * drill, the games and the exam all work on one without any of them needing to
+ * know that lists exist.
+ */
 function parseScope(arg) {
   const p = (arg || "").split("/").filter(Boolean);
+  if (p[0] === "l" && p[1]) return listById(p[1]) ? { list: p[1] } : null;
   if (p[0] !== "c" || !p[1] || !S.colById || !S.colById[p[1]]) return null;
   const cid = p[1];
   if (p[2] === undefined) return { cid, from: null, to: null };
@@ -918,6 +1090,7 @@ function parseScope(arg) {
 
 function scopeSuffix(sc) {
   if (!sc) return "all";
+  if (sc.list) return `l/${sc.list}`;
   if (sc.from === null) return `c/${sc.cid}`;
   return `c/${sc.cid}/${sc.from === sc.to ? sc.from : `${sc.from}-${sc.to}`}`;
 }
@@ -925,6 +1098,7 @@ const scopeHash = (sc, base = "review") => `#/${base}/${scopeSuffix(sc)}`;
 
 function scopeQuery(sc) {
   if (!sc) return "";
+  if (sc.list) return `?list=${encodeURIComponent(sc.list)}`;
   let q = `?collection=${encodeURIComponent(sc.cid)}`;
   if (sc.from !== null) q += `&from=${sc.from}&to=${sc.to}`;
   return q;
@@ -932,6 +1106,7 @@ function scopeQuery(sc) {
 
 function scopeLabel(sc) {
   if (!sc) return "Everything in rotation";
+  if (sc.list) { const l = listById(sc.list); return l ? l.name : "(deleted list)"; }
   const name = S.colById?.[sc.cid]?.name || sc.cid;
   if (sc.from === null) return name;
   return sc.from === sc.to ? `${name} · Batch ${sc.from + 1}`
@@ -941,6 +1116,7 @@ function scopeLabel(sc) {
 /** The characters a scope covers, or null for everything. */
 function scopeChars(sc) {
   if (!sc) return null;
+  if (sc.list) { const l = listById(sc.list); return l ? listKanji(l) : []; }
   const all = colChars(sc.cid);
   if (sc.from === null) return all;
   const size = S.settings.batch_size;
@@ -1098,6 +1274,7 @@ function reviewHub(showAll) {
   const res = activeScopes(showAll);
   const scopes = showAll ? res : res.list;
   const hidden = showAll ? 0 : res.hidden;
+  const myLists = lists().filter((l) => listKanji(l).length);
   const goals = (S.settings.goals || []).filter((g) => S.colById && S.colById[g.collection]);
 
   const batchRow = (cid, b) => {
@@ -1143,6 +1320,10 @@ function reviewHub(showAll) {
           Show ${hidden} more set${hidden === 1 ? "" : "s"} you've touched</button></div>` : ""}`
     : `<div class="card">Nothing in rotation yet.
         <a href="#/study">Start a batch</a> or <a href="#/path">follow the path</a>.</div>`}
+
+    ${myLists.length ? `
+      <h2>Your lists</h2>
+      ${myLists.map((l) => scopeCard({ list: l.id })).join("")}` : ""}
 
     ${goals.length ? `
       <h2>By goal</h2>
@@ -1240,6 +1421,7 @@ function advanceOn(sess, btnId, delay = 300) {
   $(btnId).onclick = () => { if (armed) go(); };
   keyOnce((e) => {
     if (e.repeat) return false;
+    if (S.pickerOpen) return false;                   // the list popover owns the keyboard
     if (e.key !== "Enter" && e.key !== " ") return false;
     e.preventDefault();
     if (!armed) return false;
@@ -1275,11 +1457,13 @@ function introCard(sess, item) {
             (${esc(senses(r).slice(1, 4).join(", "))}${senses(r).length > 4 ? ", …" : ""})
             — you'll meet ${extra === 1 ? "it" : "them"} once this one sticks.</p>` : ""}
         </div>
+        <div class="fb-tools">${listBtn(r.k)}</div>
         <button class="primary-btn" id="cont">Got it →</button>
         <div class="continue-hint">Enter ↵</div>
       </div>
     </div>`);
   advanceOn(sess, "#cont");
+  bindListButtons($("#main"));
 }
 
 // A kanji you already know, coming back with another meaning. This card is the
@@ -1501,11 +1685,13 @@ function finishAnswer(sess, item, q, correct, chosen, ms, note) {
     <div class="detail">read aloud ${readingLine(r)}${q.font
       ? ` · shown in <span class="jp">${q.font.jp}</span> <span class="rk">${esc(q.font.en)}</span>` : ""}</div>
     ${senseLadder(r, sensesTaught(r.k))}
+    <div class="fb-tools">${listBtn(r.k)}</div>
     <div id="fix-slot"></div>
     <button class="primary-btn" id="next-btn" style="margin-top:12px" disabled>Continue ↵</button>`;
 
   // A clean hit moves on quickly; anything else asks for the right answer before
   // it lets you past, so a miss can't be skimmed over at drilling speed.
+  bindListButtons($("#feedback"));
   if (correct && !offTarget) armContinue(sess, 400);
   else correctionStep(sess, q, want, offTarget);
 }
@@ -1537,6 +1723,7 @@ function armContinue(sess, delay) {
   }, delay);
   keyOnce((e) => {
     if (e.repeat) return false;                       // auto-repeat, not a new press
+    if (S.pickerOpen) return false;                   // the list popover owns the keyboard
     if (e.key !== "Enter" && e.key !== " ") return false;
     e.preventDefault();
     if (!armed) return false;                         // too soon: swallow, keep waiting
@@ -1747,6 +1934,13 @@ routes.games = async (arg) => {
       seen.add(scopeSuffix(gs));
       opts.push({ sc: gs, label: "Goal · " + scopeLabel(gs), n: gamePool(gs).length });
     }
+  }
+  for (const l of lists()) {
+    if (!listKanji(l).length) continue;
+    const cand = { list: l.id };
+    if (seen.has(scopeSuffix(cand))) continue;
+    seen.add(scopeSuffix(cand));
+    opts.push({ sc: cand, label: "List · " + l.name, n: gamePool(cand).length });
   }
   const act = activeScopes(false);
   for (const a of act.list) {
@@ -3051,6 +3245,238 @@ routes.goals = async () => {
   bindTips($("#main"));
 };
 
+// ================================================================ lists page
+
+/**
+ * Optional starting points for a new list.
+ *
+ * Deliberately opt-in and quiet: the dropdown defaults to "Start empty", the
+ * templates are one control among several rather than a wizard step you have to
+ * clear, and nothing nags you toward them. They exist because "the twenty I keep
+ * missing" is tedious to assemble by hand, not because a list ought to come from
+ * a template.
+ */
+function listTemplates(stats) {
+  const notOperative = (chars) => chars.filter((k) =>
+    kanjiStarted(k) && !(tierOf(k, "meaning") >= 2 && tierOf(k, "reading") >= 2));
+  const inRotation = S.kanji.filter((r) => kanjiStarted(r.k)).map((r) => r.k);
+  return [
+    { id: "empty", label: "Start empty", build: () => [] },
+    { id: "missed", label: "My most-missed kanji",
+      build: () => (stats?.hardest || []).map((h) => h.k).slice(0, 20) },
+    { id: "unfinished", label: "In rotation but not yet operative",
+      build: () => notOperative(inRotation).slice(0, 30) },
+    { id: "copy-set", label: "Copy a set or batch…", needsScope: true,
+      build: (sc) => scopeChars(sc) || [] },
+    { id: "copy-list", label: "Copy another list…", needsList: true,
+      build: (id) => { const l = listById(id); return l ? listKanji(l) : []; } },
+  ];
+}
+
+routes.lists = async (arg) => {
+  await loadState();
+  await loadCollections();
+  if (arg) return listDetail(arg);
+  const stats = await api("/api/stats").catch(() => null);
+  const templates = listTemplates(stats);
+  const mine = lists();
+
+  const scopeOpts = [];
+  for (const c of S.collections) {
+    scopeOpts.push({ sc: { cid: c.id, from: null, to: null }, label: c.name });
+    const n = Math.ceil(Array.from(c.chars).length / S.settings.batch_size);
+    for (let b = 0; b < Math.min(n, 8); b++) {
+      scopeOpts.push({ sc: { cid: c.id, from: b, to: b }, label: `${c.name} · Batch ${b + 1}` });
+    }
+  }
+
+  setMain(`
+    <h1>Lists</h1>
+    <p class="sub">Your own groupings of kanji — the ones you keep missing, a set you're
+      building for a trip, whatever you like. A list can be reviewed, drilled, played as a
+      game or sat as an exam, exactly like a built-in set. Adding a kanji to a list doesn't
+      start it, and deleting a list never touches your progress.</p>
+
+    ${mine.length ? `<div class="list-cards">
+      ${mine.map((l) => {
+        const ks = listKanji(l);
+        const sc = { list: l.id };
+        const st = scopeStats(sc);
+        return `<div class="card list-card">
+          <div class="lc-head">
+            <div><div class="lc-name">${esc(l.name)}</div>
+              <div class="chart-sub">${ks.length} kanji · ${st.kanji} in rotation · ${st.due} due${
+                l.note ? ` · ${esc(l.note)}` : ""}</div></div>
+            <div class="lc-count">${ks.length}</div>
+          </div>
+          <div class="lc-preview jp">${ks.slice(0, 18).map((k) => k).join(" ")}${ks.length > 18 ? " …" : ""}</div>
+          <div class="row">
+            <button class="ghost-btn sm" onclick="location.hash='${scopeHash(sc)}'"
+              ${st.due + st.fresh ? "" : "disabled"}>⚡ Review${st.due ? ` (${st.due})` : ""}</button>
+            <button class="ghost-btn sm" onclick="location.hash='${scopeHash(sc, "drill")}'"
+              ${st.kanji ? "" : "disabled"}>🎯 Drill</button>
+            <button class="ghost-btn sm" onclick="location.hash='#/games'">🎮 Games</button>
+            <button class="ghost-btn sm" onclick="location.hash='#/exam/${scopeSuffix(sc)}'">📋 Exam</button>
+            <button class="ghost-btn sm" onclick="location.hash='#/lists/${l.id}'">Manage</button>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>` : `<div class="card">No lists yet. Make one below, or hit
+      <b>＋ List</b> on any kanji anywhere in the app.</div>`}
+
+    <h2>New list</h2>
+    <div class="card">
+      <div class="form-grid">
+        <label>Name</label><input id="nl-name" placeholder="e.g. Ones I keep missing" maxlength="60">
+        <label>Start from</label>
+        <select id="nl-template">${templates.map((t) =>
+          `<option value="${t.id}">${esc(t.label)}</option>`).join("")}</select>
+        <label class="nl-extra hidden" id="nl-scope-label">Which set</label>
+        <select id="nl-scope" class="nl-extra hidden">${scopeOpts.map((o, i) =>
+          `<option value="${i}">${esc(o.label)}</option>`).join("")}</select>
+        <label class="nl-extra hidden" id="nl-list-label">Which list</label>
+        <select id="nl-list" class="nl-extra hidden">${mine.map((l) =>
+          `<option value="${l.id}">${esc(l.name)}</option>`).join("")}</select>
+        <label>Or paste kanji <span class="chart-sub">(optional)</span></label>
+        <input id="nl-paste" class="jp" placeholder="日月火水…" autocomplete="off">
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button class="primary-btn" id="nl-create">Create list</button>
+        <span class="chart-sub" id="nl-preview"></span>
+      </div>
+    </div>`);
+
+  const tSel = $("#nl-template");
+  const showExtras = () => {
+    const t = templates.find((x) => x.id === tSel.value);
+    $("#nl-scope-label").classList.toggle("hidden", !t.needsScope);
+    $("#nl-scope").classList.toggle("hidden", !t.needsScope);
+    const canList = t.needsList && mine.length > 0;
+    $("#nl-list-label").classList.toggle("hidden", !canList);
+    $("#nl-list").classList.toggle("hidden", !canList);
+    preview();
+  };
+  const seedFrom = () => {
+    const t = templates.find((x) => x.id === tSel.value);
+    if (t.needsScope) return t.build(scopeOpts[+$("#nl-scope").value].sc);
+    if (t.needsList) return mine.length ? t.build($("#nl-list").value) : [];
+    return t.build();
+  };
+  const preview = () => {
+    const seeded = dedupeKanji([...seedFrom(), ...Array.from($("#nl-paste").value || "")]);
+    $("#nl-preview").textContent = seeded.length
+      ? `${Array.from(seeded).length} kanji: ${Array.from(seeded).slice(0, 12).join("")}${
+          Array.from(seeded).length > 12 ? "…" : ""}`
+      : "empty — you can add kanji later from anywhere in the app";
+  };
+  tSel.onchange = showExtras;
+  $("#nl-scope").onchange = preview;
+  $("#nl-list").onchange = preview;
+  $("#nl-paste").oninput = preview;
+  showExtras();
+
+  $("#nl-create").onclick = async () => {
+    const name = $("#nl-name").value.trim() || "Untitled list";
+    const kanji = dedupeKanji([...seedFrom(), ...Array.from($("#nl-paste").value || "")]);
+    const l = await createList(name, kanji);
+    toast(`Created “${esc(l.name)}”`);
+    location.hash = "#/lists/" + l.id;
+  };
+};
+
+async function listDetail(id) {
+  const l = listById(id);
+  if (!l) { location.hash = "#/lists"; return; }
+  const ks = listKanji(l);
+  const sc = { list: l.id };
+  const st = scopeStats(sc);
+  setMain(`
+    <h1>${esc(l.name)}</h1>
+    <p class="sub">${ks.length} kanji · ${st.kanji} in rotation · created ${l.created}</p>
+    <div class="row" style="margin-bottom:16px">
+      <button class="primary-btn" onclick="location.hash='${scopeHash(sc)}'"
+        ${st.due + st.fresh ? "" : "disabled"}>⚡ Review this list</button>
+      <button class="ghost-btn" onclick="location.hash='${scopeHash(sc, "drill")}'"
+        ${st.kanji ? "" : "disabled"}>🎯 Drill</button>
+      <button class="ghost-btn" onclick="location.hash='#/exam/${scopeSuffix(sc)}'">📋 Exam</button>
+      <button class="ghost-btn" id="ld-back">← All lists</button>
+    </div>
+
+    ${ks.length ? `
+    <div class="card">
+      <div class="chart-title">Members</div>
+      <div class="chart-sub">Click a kanji to inspect it, or ✕ to take it out of this list.
+        Removing it here never affects your progress on that kanji.</div>
+      <div class="kanji-grid list-members">
+        ${ks.map((k) => {
+          const m = srsOf(k, "meaning"), rd = srsOf(k, "reading");
+          const cls = (x) => (x ? (x.state === "new" ? "" : x.state) : "");
+          return `<div class="kanji-cell" data-k="${k}">${k}
+            <span class="st ${cls(m)}"></span><span class="st ${cls(rd)}"></span>
+            <button class="lm-x" data-remove="${k}" title="Remove from list">✕</button></div>`;
+        }).join("")}
+      </div>
+    </div>` : `<div class="card">This list is empty. Hit <b>＋ List</b> on any kanji
+      anywhere in the app — mid-review, on the Batches grid, in your stats — to add it here.</div>`}
+
+    <div class="card">
+      <div class="chart-title">Add kanji</div>
+      <div class="form-grid" style="margin-top:10px">
+        <label>Paste kanji</label><input id="ld-paste" class="jp" placeholder="日月火…" autocomplete="off">
+      </div>
+      <div class="row" style="margin-top:12px"><button class="ghost-btn" id="ld-add">Add to list</button></div>
+    </div>
+
+    <h2>Manage</h2>
+    <div class="card">
+      <div class="form-grid">
+        <label>Rename</label><input id="ld-name" value="${esc(l.name)}" maxlength="60">
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="ghost-btn" id="ld-rename">Save name</button>
+        <button class="ghost-btn danger" id="ld-delete">Delete list</button>
+      </div>
+      <p class="settings-note" style="margin-bottom:0">Deleting a list removes the grouping
+        only. Every kanji stays in your rotation with its full history, and any exam results
+        for this list stay in your records.</p>
+    </div>`);
+
+  $("#ld-back").onclick = () => (location.hash = "#/lists");
+  document.querySelectorAll(".kanji-cell").forEach((el) => {
+    el.onclick = (e) => {
+      if (e.target.dataset.remove) return;
+      kanjiModal(el.dataset.k);
+    };
+  });
+  document.querySelectorAll("[data-remove]").forEach((b) => {
+    b.onclick = async (e) => {
+      e.stopPropagation();
+      await setListKanji(id, listKanji(listById(id)).filter((k) => k !== b.dataset.remove));
+      listDetail(id);
+    };
+  });
+  $("#ld-add").onclick = async () => {
+    const add = Array.from($("#ld-paste").value || "").filter((k) => S.byChar[k]);
+    if (!add.length) return toast("No recognisable kanji in that.");
+    await setListKanji(id, [...listKanji(listById(id)), ...add]);
+    toast(`Added ${add.length} kanji`);
+    listDetail(id);
+  };
+  $("#ld-rename").onclick = async () => {
+    const name = $("#ld-name").value.trim();
+    if (!name) return;
+    await renameList(id, name);
+    toast("Renamed");
+    listDetail(id);
+  };
+  $("#ld-delete").onclick = async () => {
+    if (!confirm(`Delete “${l.name}”?\n\nThe grouping goes away. Your progress on every `
+      + `kanji in it is untouched.`)) return;
+    await deleteList(id);
+    location.hash = "#/lists";
+  };
+}
+
 // ================================================================ mastery exam
 //
 // A capstone for a batch. Review is study — it re-asks what you miss, tells you
@@ -3160,7 +3586,8 @@ routes.exam = async (arg) => {
 
 function examPicker() {
   const res = activeScopes(false);
-  const rows = [...res.list.flatMap((s) => s.batches.map((b) => ({ cid: s.col.id, from: b.index, to: b.index }))),
+  const rows = [...lists().filter((l) => listKanji(l).length).map((l) => ({ list: l.id })),
+                ...res.list.flatMap((s) => s.batches.map((b) => ({ cid: s.col.id, from: b.index, to: b.index }))),
                 ...res.list.map((s) => ({ cid: s.col.id, from: null, to: null }))];
   setMain(`
     <h1>Mastery exam</h1>

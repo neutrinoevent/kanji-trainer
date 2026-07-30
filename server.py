@@ -43,6 +43,10 @@ DEFAULT_SETTINGS = {
     "goals": [],         # user-declared fluency goals
     # last review scope the user picked ("all", or "c/<collection>[/<from>-<to>]")
     "review_scope": "all",
+    # User-made lists of kanji. Purely a grouping: adding a kanji to a list does
+    # not start it, and deleting a list never touches SRS progress or reviews.
+    # Shape: [{id, name, kanji: "日一人", created, note}]
+    "lists": [],
     # Mastery exam results, keyed by scope suffix -> list of attempts. History is
     # kept rather than overwritten: improving from 72% to 91% is worth seeing.
     "exams": {},
@@ -473,8 +477,19 @@ def unlock_senses():
     return added
 
 
-def scope_chars(settings, collection=None, b_from=None, b_to=None):
+def list_chars(settings, list_id):
+    """The kanji in a user-made list, in the order the user added them."""
+    for lst in settings.get("lists") or []:
+        if lst.get("id") == list_id:
+            return [c for c in (lst.get("kanji") or "") if c in KANJI_INDEX]
+    return None
+
+
+def scope_chars(settings, collection=None, b_from=None, b_to=None, list_id=None):
     """Resolve a review scope to a set of kanji, or None for 'everything'.
+
+    A user-made list is just another scope, which is what lets review, drill,
+    games and exams work on one without any of them knowing lists exist.
 
     A learner working through Grade 1 batch 1 should be able to review *that*,
     not whatever else happens to be in rotation. Scope is a collection id plus
@@ -483,6 +498,9 @@ def scope_chars(settings, collection=None, b_from=None, b_to=None):
     A range (not just a single index) is what lets a goal — "the first three
     batches of Grade 1" — be reviewed as one scope.
     """
+    if list_id:
+        chars = list_chars(settings, list_id)
+        return set(chars) if chars is not None else None
     if not collection:
         return None
     chars = collection_chars(collection, settings)
@@ -939,8 +957,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/queue":
             q = parse_qs(url.query)
             cid = (q.get("collection") or [None])[0]
+            list_id = (q.get("list") or [None])[0]
             if cid is not None and cid not in COLLECTIONS:
                 return self.send_json({"error": "unknown collection"}, 400)
+            if list_id and list_chars(settings, list_id) is None:
+                return self.send_json({"error": "unknown list"}, 400)
 
             def opt_int(name):
                 raw = (q.get(name) or [None])[0]
@@ -958,9 +979,10 @@ class Handler(BaseHTTPRequestHandler):
             if b_to is not None and b_from is not None and b_to < b_from:
                 return self.send_json({"error": "bad batch range"}, 400)
 
-            scope = scope_chars(settings, cid, b_from, b_to)
+            scope = scope_chars(settings, cid, b_from, b_to, list_id)
             out = build_queue(settings, scope)
             out["scope"] = {"collection": cid, "from": b_from, "to": b_to,
+                            "list": list_id,
                             "size": len(scope) if scope is not None else None}
             return self.send_json(out)
         if path == "/api/collections":

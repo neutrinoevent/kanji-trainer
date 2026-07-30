@@ -621,3 +621,53 @@ h2 { font-size: 17px; margin: 26px 0 12px; }
 .exam-claim { background: var(--surface-2); border-left: 3px solid var(--accent);
               border-radius: 0 8px 8px 0; padding: 12px 14px; }
 .exam-claim i { color: var(--ink); font-style: normal; }
+
+/* ============================================================ lists */
+.list-cards { display: flex; flex-direction: column; gap: 12px; }
+.list-card .lc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.lc-name { font-size: 16px; font-weight: 700; }
+.lc-count { font-size: 26px; font-weight: 800; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
+.lc-preview { font-family: var(--jp); font-size: 22px; margin: 10px 0 12px; color: var(--ink-2); line-height: 1.5; }
+
+.list-members .kanji-cell { position: relative; }
+.lm-x {
+  position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; padding: 0;
+  border-radius: 50%; border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--muted); font-size: 11px; line-height: 1; opacity: 0; transition: opacity .12s;
+}
+.kanji-cell:hover .lm-x { opacity: 1; }
+.lm-x:hover { color: var(--bad); border-color: var(--bad); }
+.lm-add:hover { color: var(--accent); border-color: var(--accent); }
+
+/* the add-to-list control that appears wherever a kanji is on screen */
+.list-add-btn {
+  background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 11px; font-size: 12.5px;
+}
+.list-add-btn:hover { color: var(--ink); border-color: var(--accent); }
+.fb-tools { display: flex; justify-content: center; margin: 12px 0 2px; }
+
+.list-picker {
+  position: fixed; z-index: 60; width: 268px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 12px 34px rgba(0,0,0,.45); padding: 10px; text-align: left;
+}
+.lp-head { font-size: 12px; color: var(--muted); text-transform: uppercase;
+           letter-spacing: .7px; margin-bottom: 8px; display: flex; align-items: center; gap: 7px; }
+.lp-head .jp { font-family: var(--jp); font-size: 22px; text-transform: none; color: var(--ink); }
+.lp-items { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; }
+.lp-item { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+           background: none; border: 0; border-radius: 7px; padding: 6px 8px;
+           color: var(--ink-2); font-size: 13.5px; }
+.lp-item:hover { background: var(--surface-2); color: var(--ink); }
+.lp-item.on { color: var(--ink); }
+.lp-check { width: 15px; color: var(--muted); }
+.lp-item.on .lp-check { color: var(--good); }
+.lp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-n { color: var(--muted); font-size: 11.5px; }
+.lp-empty { color: var(--muted); font-size: 13px; padding: 2px 8px 8px; }
+.lp-new { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.lp-new input { flex: 1; min-width: 0; background: var(--surface-2); color: var(--ink);
+                border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font: inherit; font-size: 13px; }
+.lp-foot { margin-top: 8px; font-size: 12px; }
+.lp-foot a { color: var(--accent); }
