@@ -22,18 +22,21 @@ import zipfile
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 REPO_ZIP = "https://codeload.github.com/neutrinoevent/kanji-trainer/zip/refs/heads/main"
-# user data: never copied over, never deleted
-# spoken.local.json is the user's own read-aloud reading overrides, so an update
-# must not clobber it (the shipped spoken.json is app data and does get replaced)
+# User data lives in userdata/, which is gitignored and therefore absent from
+# both the repo and the download — so an update cannot reach it, by construction.
+# This list only still exists for installs that predate that move; the server
+# relocates those files into userdata/ on first run.
 PRESERVE = {"trainer.db", "trainer.db-wal", "trainer.db-shm", "trainer.db.bak",
             "spoken.local.json", "exam-log.jsonl"}
 
 
 def backup_db():
-    db = os.path.join(BASE, "data", "trainer.db")
+    db = os.path.join(BASE, "userdata", "trainer.db")
+    if not os.path.exists(db):
+        db = os.path.join(BASE, "data", "trainer.db")   # pre-userdata/ install
     if os.path.exists(db):
         shutil.copy2(db, db + ".bak")
-        print("Progress backed up to data/trainer.db.bak")
+        print(f"Progress backed up to {db}.bak")
 
 
 def git_update():

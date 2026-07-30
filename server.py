@@ -8,13 +8,16 @@ and implements the SM-2-style spaced-repetition scheduler.
 Usage:  python server.py [port]     (default port 7777)
 """
 
+import gzip
 import hashlib
 import json
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import threading
+import time
 import webbrowser
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,9 +25,57 @@ from urllib.parse import urlparse, parse_qs
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(BASE_DIR, "data", "kanji.json")
-DB_FILE = os.path.join(BASE_DIR, "data", "trainer.db")
-EXAM_LOG_FILE = os.path.join(BASE_DIR, "data", "exam-log.jsonl")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+# ---------------------------------------------------------------- where data lives
+#
+# Everything the user owns lives under userdata/, and nothing else does. That is
+# a boundary rather than a list, which matters: updates copy the repo's files
+# over the install, and userdata/ is gitignored so it is not in the repo, so an
+# update cannot reach it. The previous arrangement kept user files in data/
+# alongside shipped files and protected them with a hand-maintained PRESERVE
+# list — which had already been forgotten twice as new user files appeared.
+USER_DIR = os.path.join(BASE_DIR, "userdata")
+SNAP_DIR = os.path.join(USER_DIR, "snapshots")
+DB_FILE = os.path.join(USER_DIR, "trainer.db")
+EXAM_LOG_FILE = os.path.join(USER_DIR, "exam-log.jsonl")
+SPOKEN_LOCAL_FILE = os.path.join(USER_DIR, "spoken.local.json")
+
+# Legacy locations, moved on first run of this version.
+_LEGACY = [("data/trainer.db", DB_FILE), ("data/trainer.db-wal", DB_FILE + "-wal"),
+           ("data/trainer.db-shm", DB_FILE + "-shm"), ("data/trainer.db.bak", DB_FILE + ".bak"),
+           ("data/exam-log.jsonl", EXAM_LOG_FILE),
+           ("data/spoken.local.json", SPOKEN_LOCAL_FILE)]
+
+
+def mirror_dir():
+    """A copy outside the app folder, so deleting or re-cloning it loses nothing."""
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, "kanji-trainer")
+
+
+def migrate_userdata():
+    """Move pre-userdata/ files into place. Moves, never copies, and never
+    overwrites — if both exist the newer arrangement wins and the old file is
+    left alone rather than silently discarded."""
+    os.makedirs(SNAP_DIR, exist_ok=True)
+    moved = []
+    for rel, dst in _LEGACY:
+        src = os.path.join(BASE_DIR, rel)
+        if os.path.exists(src) and not os.path.exists(dst):
+            try:
+                shutil.move(src, dst)
+                moved.append(os.path.basename(rel))
+            except OSError:
+                pass
+    if moved:
+        print(f"Moved your data into userdata/: {', '.join(moved)}")
+    return moved
 
 DEFAULT_SETTINGS = {
     "top_n": 1000,
@@ -876,6 +927,246 @@ def verify_exam_chain():
             "ok": not problems, "problems": problems}
 
 
+# ---------------------------------------------------------------- durability
+#
+# Three layers, each covering what the one below cannot:
+#
+#   1. userdata/trainer.db      the live store
+#   2. userdata/snapshots/      timestamped, gzipped, thinned over time —
+#                               covers corruption, a bad update, and "I deleted
+#                               the wrong thing an hour ago"
+#   3. the OS user-data folder  one copy outside the app tree entirely — covers
+#                               deleting or re-cloning the whole install
+#
+# Snapshots are the existing export format with a header, so anything that can
+# read a backup can read a snapshot, and restoring is the import path that has
+# been exercised since v1.
+
+SNAPSHOT_VERSION = 1
+SNAPSHOT_MIN_GAP = timedelta(hours=1)     # don't churn while someone is studying
+SNAPSHOT_KEEP_RECENT = 8
+SNAPSHOT_KEEP_DAYS = 30
+MIRROR_KEEP = 3
+
+
+def snapshot_payload():
+    """Exactly the /api/export document — one format, one code path."""
+    return {
+        "version": 1,
+        "exported": iso(now_utc()),
+        "settings": get_settings(),
+        "srs": [dict(r) for r in db().execute("SELECT * FROM srs")],
+        "reviews": [dict(r) for r in db().execute("SELECT * FROM reviews")],
+        "exam_log": exam_log_rows(),
+    }
+
+
+def state_fingerprint():
+    """Cheap 'has anything changed since the last snapshot' check."""
+    row = db().execute(
+        "SELECT (SELECT COUNT(*) FROM reviews) r, (SELECT COUNT(*) FROM srs) s,"
+        " (SELECT COUNT(*) FROM exam_log) e").fetchone()
+    settings_blob = _canonical(get_settings())
+    return f"{row['r']}:{row['s']}:{row['e']}:" + \
+        hashlib.sha256(settings_blob.encode("utf-8")).hexdigest()[:12]
+
+
+def snapshot_list(directory=None):
+    d = directory or SNAP_DIR
+    out = []
+    try:
+        names = sorted(os.listdir(d), reverse=True)
+    except OSError:
+        return out
+    for name in names:
+        if not name.endswith(".json.gz"):
+            continue
+        path = os.path.join(d, name)
+        try:
+            with gzip.open(path, "rt", encoding="utf-8") as f:
+                meta = json.load(f).get("meta", {})
+            out.append({**meta, "name": name, "bytes": os.path.getsize(path)})
+        except (OSError, ValueError):
+            out.append({"name": name, "broken": True,
+                        "bytes": os.path.getsize(path) if os.path.exists(path) else 0})
+    return out
+
+
+def has_progress():
+    row = db().execute(
+        "SELECT (SELECT COUNT(*) FROM reviews) r, (SELECT COUNT(*) FROM srs) s").fetchone()
+    return bool(row["r"] or row["s"])
+
+
+def write_snapshot(reason="auto"):
+    """Snapshot the current state, unless there is no state.
+
+    Refusing to snapshot an empty store is a safety rule, not an optimisation.
+    The mirror keeps a fixed number of copies, so a fresh-but-empty install
+    writing snapshots would quietly evict the very backups that could rescue it —
+    which is exactly the situation a wiped userdata/ folder creates.
+    """
+    if not has_progress():
+        return None
+    os.makedirs(SNAP_DIR, exist_ok=True)
+    payload = snapshot_payload()
+    meta = {
+        "v": SNAPSHOT_VERSION, "app": "kanji-trainer", "reason": reason,
+        "ts": iso(now_utc()), "local_date": today_local(),
+        "srs": len(payload["srs"]), "reviews": len(payload["reviews"]),
+        "exams": len(payload["exam_log"]), "fingerprint": state_fingerprint(),
+    }
+    blob = _canonical({"meta": meta, "data": payload}).encode("utf-8")
+    meta["digest"] = hashlib.sha256(blob).hexdigest()
+    final = _canonical({"meta": meta, "data": payload}).encode("utf-8")
+    name = meta["ts"].replace(":", "-") + "-" + meta["digest"][:8] + ".json.gz"
+    with gzip.open(os.path.join(SNAP_DIR, name), "wb") as f:
+        f.write(final)
+    prune_snapshots()
+    mirror_snapshot(name)
+    return {**meta, "name": name}
+
+
+def prune_snapshots():
+    """Keep the recent ones, then one per day, then one per month. A learner
+    wants 'an hour ago' and 'before I broke it last week', not 400 files."""
+    names = sorted([n for n in os.listdir(SNAP_DIR) if n.endswith(".json.gz")], reverse=True)
+    keep = set(names[:SNAPSHOT_KEEP_RECENT])
+    # Never let tiering discard the newest snapshot that actually holds work.
+    for snap in snapshot_list():
+        if snap.get("reviews") or snap.get("srs"):
+            keep.add(snap["name"])
+            break
+    today = datetime.now(timezone.utc).date()
+    seen_day, seen_month = set(), set()
+    for n in names:
+        stamp = n[:10]                      # YYYY-MM-DD
+        month = n[:7]
+        try:
+            age = (today - datetime.strptime(stamp, "%Y-%m-%d").date()).days
+        except ValueError:
+            continue
+        if age <= SNAPSHOT_KEEP_DAYS and stamp not in seen_day:
+            seen_day.add(stamp)
+            keep.add(n)
+        elif month not in seen_month:
+            seen_month.add(month)
+            keep.add(n)
+    for n in names:
+        if n not in keep:
+            try:
+                os.remove(os.path.join(SNAP_DIR, n))
+            except OSError:
+                pass
+
+
+def mirror_snapshot(name):
+    """Copy the newest snapshot outside the app folder. Best effort: a read-only
+    or missing home directory must never stop the app working."""
+    if not has_progress():
+        return False                      # never evict a good copy with an empty one
+    try:
+        d = os.path.join(mirror_dir(), "snapshots")
+        os.makedirs(d, exist_ok=True)
+        shutil.copy2(os.path.join(SNAP_DIR, name), os.path.join(d, name))
+        keep = sorted([n for n in os.listdir(d) if n.endswith(".json.gz")],
+                      reverse=True)[:MIRROR_KEEP]
+        for n in os.listdir(d):
+            if n.endswith(".json.gz") and n not in keep:
+                os.remove(os.path.join(d, n))
+        return True
+    except OSError:
+        return False
+
+
+def maybe_snapshot(reason="auto"):
+    """Snapshot if something changed and enough time has passed."""
+    snaps = snapshot_list()
+    if snaps:
+        newest = snaps[0]
+        if newest.get("fingerprint") == state_fingerprint():
+            return None
+        try:
+            last = datetime.strptime(newest["ts"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            if now_utc() - last < SNAPSHOT_MIN_GAP and reason == "auto":
+                return None
+        except (KeyError, ValueError):
+            pass
+    return write_snapshot(reason)
+
+
+def restore_payload(dump):
+    """Replace live data with a snapshot's contents. Shared with /api/import."""
+    if dump.get("version") != 1:
+        raise ValueError("unsupported backup version")
+    conn = db()
+    conn.execute("DELETE FROM srs")
+    conn.execute("DELETE FROM reviews")
+    conn.execute("DELETE FROM settings")
+    save_settings(dump.get("settings") or {})
+    for r in dump.get("srs") or []:
+        conn.execute(
+            "INSERT OR REPLACE INTO srs(kanji,facet,state,step,interval,ease,"
+            "due,reps,lapses,introduced_on) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (r["kanji"], r["facet"], r["state"], r["step"], r["interval"],
+             r["ease"], r.get("due"), r["reps"], r["lapses"], r.get("introduced_on")))
+    for r in dump.get("reviews") or []:
+        conn.execute(
+            "INSERT INTO reviews(kanji,facet,mode,correct,ms,srs,ts,day,on_target)"
+            " VALUES(?,?,?,?,?,?,?,?,?)",
+            (r["kanji"], r["facet"], r["mode"], r["correct"], r.get("ms"),
+             r.get("srs", 1), r["ts"], r["day"], r.get("on_target", r["correct"])))
+    for rec in dump.get("exam_log") or []:
+        if not rec.get("id") or not rec.get("digest"):
+            continue
+        conn.execute(
+            "INSERT OR IGNORE INTO exam_log(id,ts,scope,passed,score,prev,digest,payload)"
+            " VALUES(?,?,?,?,?,?,?,?)",
+            (rec["id"], rec.get("ts", ""), (rec.get("scope") or {}).get("suffix", ""),
+             1 if rec.get("passed") else 0, float(rec.get("score") or 0),
+             rec.get("prev"), rec["digest"], _canonical(rec)))
+    conn.commit()
+
+
+def read_snapshot(name, directory=None):
+    d = directory or SNAP_DIR
+    path = os.path.normpath(os.path.join(d, name))
+    if not path.startswith(os.path.normpath(d)) or not os.path.isfile(path):
+        raise ValueError("no such snapshot")
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def recovery_offer():
+    """If the live store is empty but a snapshot holds real work, say so.
+
+    Deliberately an offer rather than an automatic restore: a learner who has
+    just deliberately reset their progress must not have it silently resurrected.
+    """
+    row = db().execute(
+        "SELECT (SELECT COUNT(*) FROM reviews) r, (SELECT COUNT(*) FROM srs) s").fetchone()
+    if row["r"] or row["s"]:
+        return None
+    best, source = None, None
+    for src, d in (("local", SNAP_DIR), ("mirror", os.path.join(mirror_dir(), "snapshots"))):
+        for snap in snapshot_list(d):
+            if snap.get("broken") or not (snap.get("reviews") or snap.get("srs")):
+                continue
+            if best is None or snap.get("ts", "") > best.get("ts", ""):
+                best, source = snap, src
+    return {**best, "source": source} if best else None
+
+
+def snapshot_thread():
+    """Quiet background cadence. Daemon, so it never holds the app open."""
+    while True:
+        time.sleep(900)
+        try:
+            maybe_snapshot("auto")
+        except Exception:
+            pass
+
+
 # ---------------------------------------------------------------- http
 
 MIME = {
@@ -931,8 +1222,19 @@ class Handler(BaseHTTPRequestHandler):
         path = url.path
         if path == "/" or path == "/index.html":
             return self.serve_file("static/index.html")
-        if path.startswith("/static/") or path in (
-                "/data/kanji.json", "/data/spoken.json", "/data/spoken.local.json"):
+        if path == "/data/spoken.local.json":
+            # lives in userdata/ now; the URL is unchanged so the client and any
+            # instructions written down for users still work
+            if not os.path.isfile(SPOKEN_LOCAL_FILE):
+                return self.send_json({"overrides": {}})
+            with open(SPOKEN_LOCAL_FILE, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", MIME[".json"])
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return self.wfile.write(body)
+        if path.startswith("/static/") or path in ("/data/kanji.json", "/data/spoken.json"):
             return self.serve_file(path)
 
         settings = get_settings()
@@ -953,6 +1255,8 @@ class Handler(BaseHTTPRequestHandler):
                 "sense_today": queue["sense_today"],
                 "senses_waiting": queue["senses_waiting"],
                 "tiers": {"operative": TIER_OPERATIVE, "solid": TIER_SOLID},
+                "recovery": recovery_offer(),
+                "storage": {"user_dir": USER_DIR, "mirror_dir": mirror_dir()},
             })
         if path == "/api/queue":
             q = parse_qs(url.query)
@@ -991,6 +1295,14 @@ class Handler(BaseHTTPRequestHandler):
                  "chars": collection_chars(c["id"], settings)}
                 for c in COLLECTIONS.values()
             ])
+        if path == "/api/backups":
+            mdir = os.path.join(mirror_dir(), "snapshots")
+            return self.send_json({
+                "user_dir": USER_DIR, "snapshot_dir": SNAP_DIR, "mirror_dir": mdir,
+                "mirror_ok": os.path.isdir(mdir),
+                "snapshots": snapshot_list(),
+                "mirror": snapshot_list(mdir),
+            })
         if path == "/api/exams":
             return self.send_json({"rubric": EXAM_RUBRIC,
                                    "entries": exam_log_rows(),
@@ -1088,9 +1400,26 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/exam":
             return self.send_json({"ok": True, "record": seal_exam(body)})
 
+        if path == "/api/backup":
+            return self.send_json({"ok": True,
+                                   "snapshot": write_snapshot(body.get("reason") or "manual")})
+
+        if path == "/api/restore":
+            # Snapshot the current state first, so restoring is itself undoable.
+            try:
+                safety = write_snapshot("pre-restore")
+                src = SNAP_DIR if body.get("source") != "mirror" \
+                    else os.path.join(mirror_dir(), "snapshots")
+                snap = read_snapshot(body.get("name") or "", src)
+                restore_payload(snap.get("data") or {})
+            except (ValueError, OSError) as e:
+                return self.send_json({"error": str(e)}, 400)
+            return self.send_json({"ok": True, "undo": safety})
+
         if path == "/api/import":
             if body.get("version") != 1:
                 return self.send_json({"error": "unsupported export version"}, 400)
+            write_snapshot("pre-import")     # importing replaces everything
             conn = db()
             conn.execute("DELETE FROM srs")
             conn.execute("DELETE FROM reviews")
@@ -1131,7 +1460,19 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 7777
+    migrate_userdata()
     init_db()
+    try:
+        snap = maybe_snapshot("startup")
+        if snap:
+            print(f"Backup saved: userdata/snapshots/{snap['name']}")
+        offer = recovery_offer()
+        if offer:
+            print(f"No progress found, but a backup from {offer['ts']} holds "
+                  f"{offer['reviews']} answers — the app will offer to restore it.")
+    except Exception as e:
+        print(f"(backup skipped: {e})")
+    threading.Thread(target=snapshot_thread, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{port}"
     print(f"Kanji Trainer running at {url}  (Ctrl+C to stop)")

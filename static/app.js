@@ -30,6 +30,8 @@ async function loadState() {
   S.dueCount = st.due_count;
   S.newCount = st.new_count;
   S.tiers = st.tiers || S.tiers;
+  S.recovery = st.recovery || null;
+  S.storage = st.storage || S.storage;
   S.sensesWaiting = st.senses_waiting || 0;
   const badge = $("#due-badge");
   const total = st.due_count + st.new_count;
@@ -630,6 +632,7 @@ routes.dashboard = async () => {
       <button class="ghost-btn" id="go-study">Browse batches</button>
       <button class="ghost-btn" id="go-games">Play a game</button>
     </div>
+    ${recoveryCard()}
     ${goalSpotlight(stats)}
     <div class="card chart-card">
       <div class="chart-title">Today's goals</div>
@@ -649,6 +652,17 @@ routes.dashboard = async () => {
   $("#go-review").onclick = () => (location.hash = "#/review");
   $("#go-study").onclick = () => (location.hash = "#/study");
   $("#go-games").onclick = () => (location.hash = "#/games");
+  const rec = $("#rec-restore");
+  if (rec) rec.onclick = async () => {
+    rec.disabled = true;
+    rec.textContent = "Restoring…";
+    try {
+      await api("/api/restore", { name: S.recovery.name, source: S.recovery.source });
+      location.reload();
+    } catch (e) { toast("Restore failed: " + e.message); rec.disabled = false; }
+  };
+  const dis = $("#rec-dismiss");
+  if (dis) dis.onclick = () => { S.recovery = null; routes.dashboard(); };
   const replay = $("#replay-tour");
   if (replay) replay.onclick = () => startTour();
   bindTips($("#main"));
@@ -660,6 +674,34 @@ routes.dashboard = async () => {
     startTour();
   }
 };
+
+/**
+ * Offered when the store is empty but a backup holds real work — after a folder
+ * was deleted, a fresh clone, or a bad restore. Deliberately an offer: someone
+ * who has just reset their progress on purpose must not have it resurrected
+ * behind their back.
+ */
+function recoveryCard() {
+  const r = S.recovery;
+  if (!r) return "";
+  return `
+    <div class="card recovery-card">
+      <div class="chart-title">There's a backup we can put back</div>
+      <p class="sub" style="margin:6px 0 12px">This copy of the app has no progress in it,
+        but a backup from <b>${esc(r.ts.replace("T", " ").replace("Z", " UTC"))}</b> holds
+        <b>${r.reviews}</b> answers across <b>${r.srs}</b> cards${
+        r.exams ? ` and ${r.exams} exam record${r.exams === 1 ? "" : "s"}` : ""}.
+        ${r.source === "mirror"
+          ? "It was found outside the app folder, where updates and re-installs can't reach it."
+          : "It was found in this install's own backups."}</p>
+      <div class="row">
+        <button class="primary-btn" id="rec-restore">Restore it</button>
+        <button class="ghost-btn" id="rec-dismiss">Not now</button>
+      </div>
+      <p class="settings-note" style="margin-bottom:0">Restoring replaces whatever is here —
+        which is nothing — and takes its own backup first, so it can be undone.</p>
+    </div>`;
+}
 
 /** The fluency ladder in one line, plus the goal with the nearest deadline. */
 function goalSpotlight(stats) {
@@ -3949,7 +3991,7 @@ routes.stats = async () => {
 
   setMain(`
     <h1>Stats</h1>
-    <p class="sub">Everything is stored locally in <code>data/trainer.db</code>.</p>
+    <p class="sub">Everything is stored locally in <code>userdata/</code>.</p>
     ${levelCard(st)}
     <div class="tiles" style="margin-bottom:14px">
       <div class="tile"><div class="t-label">Total answers</div><div class="t-value">${st.total_reviews}</div></div>
@@ -4013,6 +4055,62 @@ routes.stats = async () => {
 
 // ================================================================ settings
 
+async function renderBackups() {
+  const el = $("#backup-card");
+  if (!el) return;
+  let d;
+  try { d = await api("/api/backups"); }
+  catch (e) { el.innerHTML = `<div class="chart-sub">Couldn't read backups: ${esc(e.message)}</div>`; return; }
+  const kb = (n) => (n > 1024 * 1024 ? (n / 1048576).toFixed(1) + " MB" : Math.round(n / 1024) + " KB");
+  const row = (s, source) => `
+    <div class="snap-row">
+      <span class="snap-when">${esc((s.ts || s.name).replace("T", " ").replace("Z", ""))}</span>
+      <span class="snap-what">${s.broken ? "<i>unreadable</i>"
+        : `${s.reviews} answers · ${s.srs} cards${s.exams ? ` · ${s.exams} exams` : ""}`}</span>
+      <span class="snap-why">${esc(s.reason || "")}</span>
+      <span class="snap-size">${kb(s.bytes || 0)}</span>
+      <button class="ghost-btn sm" data-restore="${esc(s.name)}" data-source="${source}"
+        ${s.broken ? "disabled" : ""}>Restore</button>
+    </div>`;
+  el.innerHTML = `
+    <div class="chart-title">Automatic backups</div>
+    <div class="chart-sub">Taken when you start the app and while it runs, whenever something
+      has changed. Thinned over time: the recent ones, then one a day, then one a month.</div>
+    <div class="snap-list">${d.snapshots.length
+      ? d.snapshots.map((s) => row(s, "local")).join("")
+      : `<div class="chart-sub">None yet — one is taken as soon as there's progress to save.</div>`}</div>
+
+    <div class="chart-title" style="margin-top:18px">Copy outside the app folder</div>
+    <div class="chart-sub">${d.mirror_ok
+      ? `Kept at <code>${esc(d.mirror_dir)}</code>. Deleting this app folder, re-cloning it or
+         reinstalling doesn't touch these — if the app ever starts up empty, it offers to
+         put one back.`
+      : `Not writable on this machine, so backups live only inside the app folder.`}</div>
+    <div class="snap-list">${d.mirror.map((s) => row(s, "mirror")).join("")}</div>
+
+    <div class="row" style="margin-top:14px">
+      <button class="ghost-btn" id="backup-now">Back up now</button>
+    </div>
+    <p class="settings-note" style="margin-bottom:0">Your data lives in
+      <code>${esc(d.user_dir)}</code>. Nothing else writes there, so updating the app or
+      pulling a new version can't disturb it.</p>`;
+
+  $("#backup-now").onclick = async () => {
+    const r = await api("/api/backup", { reason: "manual" });
+    toast(r.snapshot ? "Backup saved" : "Nothing to back up yet");
+    renderBackups();
+  };
+  el.querySelectorAll("[data-restore]").forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm("Restore this backup?\n\nIt replaces your current progress. A backup of "
+        + "the current state is taken first, so this can be undone.")) return;
+      await api("/api/restore", { name: b.dataset.restore, source: b.dataset.source });
+      alert("Restored.");
+      location.reload();
+    };
+  });
+}
+
 routes.settings = async () => {
   await loadState();
   const s = S.settings;
@@ -4067,6 +4165,10 @@ routes.settings = async () => {
         <code>data/spoken.json</code>, which you can edit; the app still accepts the kanji's
         other real readings and just nudges you toward the standalone one.</p>
     </div>
+    <h2>Backups</h2>
+    <div class="card" id="backup-card">
+      <div class="chart-sub">Loading…</div>
+    </div>
     <h2>Data</h2>
     <div class="card">
       <div class="row">
@@ -4074,7 +4176,7 @@ routes.settings = async () => {
         <button class="ghost-btn" id="import-btn">⬆ Import backup</button>
         <input type="file" id="import-file" accept=".json" class="hidden">
       </div>
-      <p class="settings-note" style="margin-bottom:0">Your progress lives in <code>data/trainer.db</code> next to the app. Export/import lets you move progress between computers. Importing <b>replaces</b> current progress.</p>
+      <p class="settings-note" style="margin-bottom:0">Your progress lives in <code>userdata/trainer.db</code>. Export/import moves it between computers; importing <b>replaces</b> what's here, and takes a backup first so it can be undone.</p>
     </div>
     <h2>Help</h2>
     <div class="card">
@@ -4129,6 +4231,7 @@ routes.settings = async () => {
     await api("/api/settings", { strict_primary: e.target.value === "1" });
     await loadState();
   };
+  renderBackups();
   $("#settings-tour").onclick = () => { S.forceTour = true; location.hash = "#/"; };
   $("#export-btn").onclick = async () => {
     const dump = await api("/api/export");

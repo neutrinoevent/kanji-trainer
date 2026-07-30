@@ -1113,6 +1113,82 @@ the card.
 
 ---
 
+## V-013 — Data that survives the app (raised 2026-07-30)
+
+### The ask
+
+Persistence that doesn't vanish with a cache clear, and doesn't get clobbered by
+dramatic app development or a `git pull`.
+
+### What was actually at risk
+
+Browser storage was never the exposure — `localStorage` only ever held a theme
+and a tour flag, both mirrored in server settings. The real risks were:
+
+1. **A hand-maintained preserve list.** User files lived in `data/` beside
+   shipped files, protected by a `PRESERVE` set in `update.py`. That list had
+   already been forgotten twice as new user files appeared (`spoken.local.json`,
+   then `exam-log.jsonl`). A rule you must remember is a rule that will be
+   forgotten.
+2. **One copy, inside the app folder.** Delete it, re-clone the repo somewhere
+   else, or reinstall, and everything is gone. No snapshots, no history — the
+   updater made a single `.bak` and that was all.
+
+### D1 — A boundary, not a list
+
+Everything the user owns now lives under `userdata/`, and nothing else does.
+`userdata/` is gitignored, so it is not in the repo, so it is not in the download,
+so an update **cannot** reach it — by construction rather than by remembering.
+New user-data files are safe by default. Legacy installs are migrated on first
+run: files are *moved*, never copied, and never over an existing target.
+
+### D2 — Snapshots, thinned over time
+
+Timestamped gzipped snapshots in `userdata/snapshots/`, in the existing export
+format with a header — so anything that can read a backup can read a snapshot,
+and restoring runs the import path that has been exercised since v1. Taken at
+startup and every fifteen minutes while running, but only when the state
+fingerprint has actually changed and at most hourly. Retention keeps the recent
+eight, then one a day for a month, then one a month.
+
+### D3 — One copy outside the app entirely
+
+The newest snapshot is mirrored into the OS user-data folder
+(`%APPDATA%`, `~/Library/Application Support`, `$XDG_DATA_HOME`). This is the
+layer that survives deleting the app folder, re-cloning it, or reinstalling.
+Best-effort: a read-only or missing home directory must never stop the app.
+
+### D4 — Recovery is offered, never automatic
+
+On startup, if the store is empty *and* a snapshot holds real work, the dashboard
+offers to restore it, naming the date, the number of answers and where the copy
+was found. It is an offer because someone who has just deliberately reset their
+progress must not have it silently resurrected.
+
+### D5 — Restoring is itself undoable
+
+Restore and import both take a snapshot of the current state first. There is no
+action in this feature that cannot be walked back.
+
+> **A dangerous bug, found by testing the disaster rather than reasoning about
+> it.** The first working version wiped `userdata/`, restarted, and restored —
+> and came back with zero reviews. The startup snapshot had run on the *empty*
+> store, written a snapshot containing nothing, and mirrored it. The mirror keeps
+> a fixed number of copies, so an empty install writing snapshots would steadily
+> evict the very backups that could rescue it. Now: an empty state is never
+> snapshotted and never mirrored, and pruning always keeps the newest snapshot
+> that actually holds work. Re-tested end to end — destroy `userdata/`, restart,
+> accept the offer, all 37 answers came back.
+
+### Deliberately not done
+
+- **No cloud anything.** That is the parked hosting question, not this.
+- **No automatic restore.** See D4.
+- **No merge on restore** — it replaces. Merging two machines' histories needs
+  answers to real conflict questions and is in `docs/IDEAS.md`.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.

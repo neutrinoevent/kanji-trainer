@@ -155,8 +155,15 @@ everything else in the app.
 - **Stats.** Daily activity, a 4-month heatmap, per-batch mastery, jōyō
   coverage, accuracy, day streak, and your most-missed kanji.
 - **Persistence.** Everything is stored in a local SQLite database
-  (`data/trainer.db`), with JSON export/import to back up or move progress
+  (`userdata/trainer.db`), with JSON export/import to back up or move progress
   between computers.
+- **Backups that survive the app.** Everything you own lives in `userdata/`,
+  which the updater cannot reach. The app takes timestamped, compressed
+  snapshots as you use it — thinned to the recent ones, then one a day, then one
+  a month — and keeps a copy in your operating system's own user-data folder,
+  outside the app entirely. Delete this folder, re-clone it, or reinstall from
+  scratch and the app will notice it has no progress, find that copy, and offer
+  to put it back.
 - Dark mode by default, with a light theme toggle.
 
 ## Keyboard shortcuts (during review)
@@ -173,8 +180,11 @@ run.sh                  macOS/Linux launcher
 static/                 the web UI (plain HTML/CSS/JS)
 data/kanji.json         the 3,122-kanji dataset
 data/spoken.json        curated read-aloud readings (editable, see below)
-data/spoken.local.json  your own reading overrides (optional; survives updates)
-data/trainer.db         your progress (created on first run; back this up)
+userdata/               everything you own — updates never touch this
+  trainer.db            your progress (created on first run)
+  snapshots/            automatic timestamped backups
+  spoken.local.json     your own reading overrides (optional)
+  exam-log.jsonl        your exam records, in plain text
 VISION.md               where the design ideas and decisions are written down
 ```
 
@@ -182,14 +192,14 @@ VISION.md               where the design ideas and decisions are written down
 
 Which reading a bare kanji takes is sometimes a judgment call, and
 `data/spoken.json` is one person's answer. To change one, don't edit that file —
-updating the app replaces it. Make `data/spoken.local.json` instead:
+updating the app replaces it. Make `userdata/spoken.local.json` instead:
 
 ```json
 { "overrides": { "後": "あと", "側": "がわ" } }
 ```
 
-Same shape, wins over the shipped file, and `update.bat` leaves it alone along
-with your progress. Restart the app to pick up changes.
+Same shape, wins over the shipped file, and lives in `userdata/` where updates
+can't reach it. Restart the app to pick up changes.
 
 ## Updating
 

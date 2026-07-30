@@ -97,8 +97,16 @@ deliberately simplify away. Depends on 5.
 
 - **Sync between devices.** Out of scope until the hosting question is settled;
   JSON export/import covers it manually. See the parked doc. `L`
-- **Selective import.** Import currently replaces everything. Merging two
-  machines' progress needs answers to real conflict questions. `M`
+- **Selective import / merge.** Import replaces everything. Merging two machines'
+  progress needs answers to real conflict questions (which card state wins, how
+  review histories union). Snapshots make this safer to attempt now, since any
+  attempt is undoable. `M`
+- **Prune snapshots by size, not just count.** Retention is count-based; a heavy
+  user with a long review history could accumulate more on disk than intended.
+  Add a total-bytes ceiling. `S`
+- **Surface backup health on the dashboard** — a quiet line if the external
+  mirror hasn't been writable for a while, since that is the copy that survives
+  losing the folder and its failure is currently silent. `S`
 
 ## Rejected, and why — so they aren't re-proposed
 

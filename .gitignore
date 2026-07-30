@@ -1,10 +1,12 @@
-# user progress database and personal reading overrides
+# Everything the user owns lives here and never enters the repo.
+# A directory boundary rather than a filename list: new user-data files are
+# safe by default instead of needing to be remembered.
+userdata/
+
+# legacy locations, moved into userdata/ on first run of a newer version
 data/spoken.local.json
 data/exam-log.jsonl
-data/trainer.db
-data/trainer.db-wal
-data/trainer.db-shm
-data/trainer.db.bak
+data/trainer.db*
 
 __pycache__/
 *.pyc
