@@ -1,0 +1,1319 @@
+{
+ "_about": "Distinct senses of a kanji, each written as a group of accepted wordings with the one to teach listed first. KANJIDIC2's gloss list is not a list of senses: it mixes genuinely different meanings (月 = Month, Moon) with plain synonyms (大 = Large, Big) and with wordings nobody would type (対 = 'Vis-a-vis'). Grouping them fixes two things at once.",
+ "_fixes": "1) The sense ladder stops spending a card teaching 'Big' as the second meaning of 大, because 大 has one sense here, not two. 2) Typed answers can be graded against the primary sense strictly while still accepting every reasonable wording of it, which is what makes strict grading fair enough to switch on.",
+ "_format": "senses[kanji] = [ [sense 1 wordings...], [sense 2 wordings...] ]. The first wording in each group is the one taught and shown. Any wording in the group counts as fully correct for that sense. Kanji absent from this file fall back to the raw gloss list.",
+ "_scope": "Curated across the beginner range -- the top ~150 by newspaper frequency plus all of Grade 1 -- because that is where the noise actually costs a learner something. Kanji whose raw glosses were already correct are curated too, since strict grading only applies where groupings exist. It is a judgment call and meant to be corrected: copy an entry into userdata/senses.local.json to override it, same as spoken.local.json.",
+ "senses": {
+  "会": [
+   [
+    "Meeting",
+    "Meet",
+    "Gathering",
+    "Association",
+    "Party"
+   ]
+  ],
+  "大": [
+   [
+    "Large",
+    "Big",
+    "Great"
+   ]
+  ],
+  "本": [
+   [
+    "Book"
+   ],
+   [
+    "Main",
+    "Origin",
+    "Real",
+    "True",
+    "Present"
+   ]
+  ],
+  "中": [
+   [
+    "Middle",
+    "Inside",
+    "In",
+    "Centre",
+    "Center"
+   ]
+  ],
+  "長": [
+   [
+    "Long"
+   ],
+   [
+    "Chief",
+    "Leader",
+    "Head",
+    "Senior",
+    "Superior"
+   ]
+  ],
+  "出": [
+   [
+    "Exit",
+    "Leave",
+    "Go out",
+    "Come out",
+    "Emerge",
+    "Put out"
+   ]
+  ],
+  "同": [
+   [
+    "Same",
+    "Equal",
+    "Identical",
+    "Agree"
+   ]
+  ],
+  "時": [
+   [
+    "Time",
+    "Hour",
+    "O'clock"
+   ]
+  ],
+  "政": [
+   [
+    "Politics",
+    "Government"
+   ]
+  ],
+  "事": [
+   [
+    "Matter",
+    "Thing",
+    "Affair",
+    "Fact",
+    "Business"
+   ]
+  ],
+  "行": [
+   [
+    "Go",
+    "Going",
+    "Journey",
+    "Travel"
+   ],
+   [
+    "Carry out",
+    "Conduct",
+    "Act",
+    "Perform"
+   ]
+  ],
+  "社": [
+   [
+    "Company",
+    "Firm",
+    "Corporation",
+    "Office",
+    "Association"
+   ],
+   [
+    "Shrine"
+   ]
+  ],
+  "見": [
+   [
+    "See",
+    "Look",
+    "View",
+    "Watch"
+   ],
+   [
+    "Opinion",
+    "Idea",
+    "Outlook"
+   ]
+  ],
+  "分": [
+   [
+    "Part",
+    "Portion",
+    "Divide",
+    "Segment",
+    "Share"
+   ],
+   [
+    "Minute"
+   ]
+  ],
+  "議": [
+   [
+    "Deliberation",
+    "Discussion",
+    "Debate",
+    "Consultation"
+   ]
+  ],
+  "後": [
+   [
+    "After",
+    "Later",
+    "Behind",
+    "Back"
+   ]
+  ],
+  "前": [
+   [
+    "Front",
+    "Before",
+    "In front",
+    "Previous"
+   ]
+  ],
+  "民": [
+   [
+    "People",
+    "Populace",
+    "Nation",
+    "Citizens"
+   ]
+  ],
+  "生": [
+   [
+    "Life",
+    "Live",
+    "Living"
+   ],
+   [
+    "Birth",
+    "Be born"
+   ],
+   [
+    "Raw",
+    "Fresh",
+    "Genuine"
+   ]
+  ],
+  "連": [
+   [
+    "Take along",
+    "Lead",
+    "Accompany",
+    "Connect",
+    "Link"
+   ]
+  ],
+  "発": [
+   [
+    "Departure",
+    "Start",
+    "Set off",
+    "Leave"
+   ],
+   [
+    "Emit",
+    "Discharge",
+    "Issue",
+    "Publish"
+   ]
+  ],
+  "間": [
+   [
+    "Interval",
+    "Space",
+    "Gap",
+    "Between"
+   ]
+  ],
+  "対": [
+   [
+    "Opposite",
+    "Versus",
+    "Facing",
+    "Against",
+    "Vis-a-vis"
+   ]
+  ],
+  "上": [
+   [
+    "Above",
+    "Up",
+    "Upper",
+    "On top"
+   ]
+  ],
+  "部": [
+   [
+    "Section",
+    "Department",
+    "Division",
+    "Bureau",
+    "Part"
+   ]
+  ],
+  "者": [
+   [
+    "Person",
+    "Someone",
+    "One who"
+   ]
+  ],
+  "党": [
+   [
+    "Party",
+    "Faction",
+    "Clique"
+   ]
+  ],
+  "地": [
+   [
+    "Ground",
+    "Earth",
+    "Land"
+   ]
+  ],
+  "合": [
+   [
+    "Fit",
+    "Suit",
+    "Join",
+    "Match",
+    "Combine"
+   ]
+  ],
+  "市": [
+   [
+    "City",
+    "Town",
+    "Municipality"
+   ],
+   [
+    "Market"
+   ]
+  ],
+  "業": [
+   [
+    "Business",
+    "Work",
+    "Vocation",
+    "Industry",
+    "Occupation"
+   ]
+  ],
+  "内": [
+   [
+    "Inside",
+    "Within",
+    "Interior",
+    "Among"
+   ]
+  ],
+  "相": [
+   [
+    "Mutual",
+    "Each other",
+    "Together",
+    "Inter-"
+   ],
+   [
+    "Minister",
+    "Minister of state"
+   ]
+  ],
+  "方": [
+   [
+    "Direction",
+    "Way",
+    "Side"
+   ],
+   [
+    "Person"
+   ]
+  ],
+  "定": [
+   [
+    "Decide",
+    "Determine",
+    "Fix",
+    "Establish",
+    "Settle"
+   ]
+  ],
+  "回": [
+   [
+    "Times",
+    "Round",
+    "Turn",
+    "Revolve",
+    "Rotate"
+   ]
+  ],
+  "場": [
+   [
+    "Place",
+    "Location",
+    "Spot",
+    "Venue"
+   ]
+  ],
+  "員": [
+   [
+    "Member",
+    "Employee",
+    "Staff",
+    "Personnel"
+   ]
+  ],
+  "入": [
+   [
+    "Enter",
+    "Go in",
+    "Insert",
+    "Put in"
+   ]
+  ],
+  "選": [
+   [
+    "Select",
+    "Choose",
+    "Elect",
+    "Pick"
+   ]
+  ],
+  "立": [
+   [
+    "Stand",
+    "Stand up",
+    "Rise",
+    "Erect",
+    "Set up"
+   ]
+  ],
+  "開": [
+   [
+    "Open",
+    "Unfold",
+    "Unseal"
+   ]
+  ],
+  "米": [
+   [
+    "Rice"
+   ],
+   [
+    "America",
+    "USA"
+   ]
+  ],
+  "力": [
+   [
+    "Power",
+    "Strength",
+    "Force",
+    "Might"
+   ]
+  ],
+  "学": [
+   [
+    "Study",
+    "Learning",
+    "Science",
+    "Learn"
+   ]
+  ],
+  "問": [
+   [
+    "Question",
+    "Ask",
+    "Problem",
+    "Inquire"
+   ]
+  ],
+  "高": [
+   [
+    "High",
+    "Tall"
+   ],
+   [
+    "Expensive",
+    "Costly"
+   ]
+  ],
+  "代": [
+   [
+    "Substitute",
+    "Replace",
+    "Instead",
+    "Stand in"
+   ],
+   [
+    "Generation",
+    "Period",
+    "Era"
+   ]
+  ],
+  "明": [
+   [
+    "Bright",
+    "Light",
+    "Clear"
+   ]
+  ],
+  "実": [
+   [
+    "Reality",
+    "Truth",
+    "Real",
+    "Actual"
+   ],
+   [
+    "Fruit",
+    "Nut",
+    "Seed"
+   ]
+  ],
+  "円": [
+   [
+    "Yen"
+   ],
+   [
+    "Circle",
+    "Round"
+   ]
+  ],
+  "関": [
+   [
+    "Connection",
+    "Relation",
+    "Involve",
+    "Concerning"
+   ],
+   [
+    "Barrier",
+    "Gate",
+    "Checkpoint"
+   ]
+  ],
+  "決": [
+   [
+    "Decide",
+    "Determine",
+    "Settle",
+    "Fix"
+   ]
+  ],
+  "子": [
+   [
+    "Child",
+    "Kid",
+    "Offspring"
+   ]
+  ],
+  "動": [
+   [
+    "Move",
+    "Motion",
+    "Movement",
+    "Shift"
+   ]
+  ],
+  "京": [
+   [
+    "Capital",
+    "Capital city"
+   ]
+  ],
+  "全": [
+   [
+    "All",
+    "Whole",
+    "Entire",
+    "Complete",
+    "Total"
+   ]
+  ],
+  "目": [
+   [
+    "Eye"
+   ],
+   [
+    "Look",
+    "Sight",
+    "Viewpoint"
+   ]
+  ],
+  "表": [
+   [
+    "Surface",
+    "Front",
+    "Outside"
+   ],
+   [
+    "Table",
+    "Chart",
+    "List",
+    "Diagram"
+   ]
+  ],
+  "戦": [
+   [
+    "War",
+    "Battle",
+    "Fight",
+    "Match"
+   ]
+  ],
+  "経": [
+   [
+    "Pass through",
+    "Elapse",
+    "Undergo",
+    "Go through"
+   ],
+   [
+    "Sutra",
+    "Scripture"
+   ]
+  ],
+  "通": [
+   [
+    "Pass through",
+    "Go through",
+    "Commute",
+    "Traffic",
+    "Avenue"
+   ]
+  ],
+  "最": [
+   [
+    "Most",
+    "Utmost",
+    "Extreme"
+   ]
+  ],
+  "言": [
+   [
+    "Say",
+    "Speak",
+    "Word",
+    "Tell"
+   ]
+  ],
+  "氏": [
+   [
+    "Family name",
+    "Surname",
+    "Clan"
+   ]
+  ],
+  "現": [
+   [
+    "Present",
+    "Current",
+    "Existing",
+    "Actual"
+   ],
+   [
+    "Appear",
+    "Show up",
+    "Manifest"
+   ]
+  ],
+  "理": [
+   [
+    "Reason",
+    "Logic",
+    "Principle",
+    "Truth"
+   ]
+  ],
+  "調": [
+   [
+    "Tune",
+    "Tone",
+    "Key",
+    "Pitch",
+    "Melody"
+   ],
+   [
+    "Investigate",
+    "Check",
+    "Look into"
+   ]
+  ],
+  "体": [
+   [
+    "Body",
+    "Physique",
+    "Substance",
+    "Form"
+   ]
+  ],
+  "化": [
+   [
+    "Change",
+    "Transform",
+    "Become",
+    "-ization"
+   ]
+  ],
+  "田": [
+   [
+    "Rice field",
+    "Rice paddy",
+    "Paddy"
+   ]
+  ],
+  "当": [
+   [
+    "Hit",
+    "Correct",
+    "Right",
+    "Appropriate"
+   ]
+  ],
+  "約": [
+   [
+    "Promise",
+    "Agreement",
+    "Pledge"
+   ],
+   [
+    "Approximately",
+    "About",
+    "Roughly"
+   ]
+  ],
+  "主": [
+   [
+    "Main",
+    "Chief",
+    "Principal",
+    "Master",
+    "Lord"
+   ]
+  ],
+  "題": [
+   [
+    "Topic",
+    "Subject",
+    "Title",
+    "Theme"
+   ]
+  ],
+  "下": [
+   [
+    "Below",
+    "Down",
+    "Under",
+    "Lower"
+   ]
+  ],
+  "意": [
+   [
+    "Mind",
+    "Idea",
+    "Thought",
+    "Intention",
+    "Meaning"
+   ]
+  ],
+  "法": [
+   [
+    "Law",
+    "Method",
+    "Rule",
+    "Principle"
+   ]
+  ],
+  "不": [
+   [
+    "Not",
+    "Non-",
+    "Un-",
+    "Negative"
+   ]
+  ],
+  "来": [
+   [
+    "Come",
+    "Arrive",
+    "Next",
+    "Coming"
+   ]
+  ],
+  "作": [
+   [
+    "Make",
+    "Produce",
+    "Create",
+    "Build"
+   ]
+  ],
+  "性": [
+   [
+    "Nature",
+    "Character",
+    "Quality",
+    "-ness"
+   ],
+   [
+    "Sex",
+    "Gender"
+   ]
+  ],
+  "的": [
+   [
+    "Target",
+    "Mark",
+    "Bull's eye"
+   ]
+  ],
+  "要": [
+   [
+    "Need",
+    "Require",
+    "Essential",
+    "Main point",
+    "Key"
+   ]
+  ],
+  "用": [
+   [
+    "Use",
+    "Utilize",
+    "Employ",
+    "Business"
+   ]
+  ],
+  "制": [
+   [
+    "System",
+    "Rule",
+    "Control",
+    "Regulate"
+   ]
+  ],
+  "治": [
+   [
+    "Govern",
+    "Rule",
+    "Reign"
+   ],
+   [
+    "Cure",
+    "Heal",
+    "Treat"
+   ]
+  ],
+  "度": [
+   [
+    "Degree",
+    "Extent",
+    "Measure"
+   ],
+   [
+    "Time",
+    "Occasion",
+    "Occurrence"
+   ]
+  ],
+  "務": [
+   [
+    "Duty",
+    "Task",
+    "Service",
+    "Work"
+   ]
+  ],
+  "気": [
+   [
+    "Spirit",
+    "Mind",
+    "Feeling",
+    "Air",
+    "Mood"
+   ]
+  ],
+  "小": [
+   [
+    "Small",
+    "Little",
+    "Minor"
+   ]
+  ],
+  "成": [
+   [
+    "Become",
+    "Turn into",
+    "Achieve",
+    "Form"
+   ]
+  ],
+  "期": [
+   [
+    "Period",
+    "Term",
+    "Time",
+    "Date"
+   ]
+  ],
+  "公": [
+   [
+    "Public",
+    "Official",
+    "Government"
+   ]
+  ],
+  "持": [
+   [
+    "Hold",
+    "Have",
+    "Carry",
+    "Possess"
+   ]
+  ],
+  "野": [
+   [
+    "Field",
+    "Plain",
+    "Wild",
+    "Rural"
+   ]
+  ],
+  "協": [
+   [
+    "Cooperation",
+    "Co-",
+    "Collaborate"
+   ]
+  ],
+  "取": [
+   [
+    "Take",
+    "Get",
+    "Fetch",
+    "Pick up"
+   ]
+  ],
+  "都": [
+   [
+    "Capital",
+    "Metropolis",
+    "City"
+   ]
+  ],
+  "和": [
+   [
+    "Harmony",
+    "Peace",
+    "Calm"
+   ],
+   [
+    "Japanese style",
+    "Japan"
+   ]
+  ],
+  "統": [
+   [
+    "Govern",
+    "Control",
+    "Unite",
+    "Overall"
+   ]
+  ],
+  "以": [
+   [
+    "By means of",
+    "With",
+    "From",
+    "Than"
+   ]
+  ],
+  "機": [
+   [
+    "Machine",
+    "Mechanism",
+    "Device"
+   ],
+   [
+    "Opportunity",
+    "Chance",
+    "Occasion"
+   ]
+  ],
+  "平": [
+   [
+    "Flat",
+    "Even",
+    "Level",
+    "Peaceful"
+   ]
+  ],
+  "総": [
+   [
+    "General",
+    "Whole",
+    "Total",
+    "Overall"
+   ]
+  ],
+  "加": [
+   [
+    "Add",
+    "Increase",
+    "Join",
+    "Addition"
+   ]
+  ],
+  "家": [
+   [
+    "House",
+    "Home",
+    "Family",
+    "Household"
+   ],
+   [
+    "Expert",
+    "Specialist"
+   ]
+  ],
+  "話": [
+   [
+    "Talk",
+    "Speak",
+    "Story",
+    "Tale",
+    "Conversation"
+   ]
+  ],
+  "世": [
+   [
+    "World",
+    "Society",
+    "Generation",
+    "Age"
+   ]
+  ],
+  "受": [
+   [
+    "Receive",
+    "Accept",
+    "Take",
+    "Undergo"
+   ]
+  ],
+  "区": [
+   [
+    "Ward",
+    "District",
+    "Section"
+   ]
+  ],
+  "領": [
+   [
+    "Territory",
+    "Domain",
+    "Jurisdiction",
+    "Dominion"
+   ]
+  ],
+  "多": [
+   [
+    "Many",
+    "Much",
+    "Numerous",
+    "Frequent"
+   ]
+  ],
+  "続": [
+   [
+    "Continue",
+    "Carry on",
+    "Series",
+    "Sequel"
+   ]
+  ],
+  "進": [
+   [
+    "Advance",
+    "Proceed",
+    "Progress",
+    "Move forward"
+   ]
+  ],
+  "正": [
+   [
+    "Correct",
+    "Right",
+    "Just",
+    "Proper"
+   ]
+  ],
+  "安": [
+   [
+    "Cheap",
+    "Inexpensive"
+   ],
+   [
+    "Peaceful",
+    "Calm",
+    "Safe",
+    "Relax"
+   ]
+  ],
+  "設": [
+   [
+    "Establish",
+    "Set up",
+    "Install",
+    "Provide"
+   ]
+  ],
+  "保": [
+   [
+    "Protect",
+    "Preserve",
+    "Keep",
+    "Guarantee",
+    "Maintain"
+   ]
+  ],
+  "改": [
+   [
+    "Reform",
+    "Change",
+    "Revise",
+    "Renew",
+    "Improve"
+   ]
+  ],
+  "数": [
+   [
+    "Number",
+    "Count",
+    "Figure",
+    "Quantity"
+   ]
+  ],
+  "記": [
+   [
+    "Record",
+    "Write down",
+    "Account",
+    "Note"
+   ]
+  ],
+  "院": [
+   [
+    "Institution",
+    "Institute",
+    "Temple",
+    "Hall"
+   ]
+  ],
+  "女": [
+   [
+    "Woman",
+    "Female",
+    "Girl"
+   ]
+  ],
+  "先": [
+   [
+    "Ahead",
+    "Before",
+    "Previous",
+    "Tip",
+    "Future"
+   ]
+  ],
+  "名": [
+   [
+    "Name",
+    "Reputation",
+    "Famous",
+    "Noted"
+   ]
+  ],
+  "川": [
+   [
+    "River",
+    "Stream"
+   ]
+  ],
+  "文": [
+   [
+    "Sentence",
+    "Writing",
+    "Literature",
+    "Text"
+   ]
+  ],
+  "村": [
+   [
+    "Village",
+    "Hamlet"
+   ]
+  ],
+  "町": [
+   [
+    "Town",
+    "Block",
+    "Street",
+    "Quarter"
+   ]
+  ],
+  "校": [
+   [
+    "School"
+   ],
+   [
+    "Proofread",
+    "Proof",
+    "Correction"
+   ]
+  ],
+  "空": [
+   [
+    "Sky",
+    "Air",
+    "Heavens"
+   ],
+   [
+    "Empty",
+    "Vacant",
+    "Void"
+   ]
+  ],
+  "土": [
+   [
+    "Soil",
+    "Earth",
+    "Ground",
+    "Dirt"
+   ]
+  ],
+  "木": [
+   [
+    "Tree",
+    "Wood",
+    "Timber"
+   ]
+  ],
+  "足": [
+   [
+    "Foot",
+    "Leg"
+   ],
+   [
+    "Be sufficient",
+    "Suffice",
+    "Enough"
+   ]
+  ],
+  "早": [
+   [
+    "Early",
+    "Fast",
+    "Quick",
+    "Soon"
+   ]
+  ],
+  "字": [
+   [
+    "Character",
+    "Letter",
+    "Written character"
+   ]
+  ],
+  "音": [
+   [
+    "Sound",
+    "Noise",
+    "Tone"
+   ]
+  ],
+  "天": [
+   [
+    "Heaven",
+    "Sky",
+    "Heavens"
+   ]
+  ],
+  "青": [
+   [
+    "Blue",
+    "Green"
+   ]
+  ],
+  "森": [
+   [
+    "Forest",
+    "Woods"
+   ]
+  ],
+  "休": [
+   [
+    "Rest",
+    "Break",
+    "Day off",
+    "Holiday"
+   ]
+  ],
+  "林": [
+   [
+    "Grove",
+    "Woods",
+    "Forest"
+   ]
+  ],
+  "王": [
+   [
+    "King",
+    "Monarch",
+    "Ruler"
+   ]
+  ],
+  "玉": [
+   [
+    "Jewel",
+    "Gem",
+    "Ball",
+    "Sphere"
+   ]
+  ],
+  "草": [
+   [
+    "Grass",
+    "Weed",
+    "Herb",
+    "Plant"
+   ]
+  ],
+  "虫": [
+   [
+    "Insect",
+    "Bug",
+    "Worm"
+   ]
+  ],
+  "日": [
+   [
+    "Day"
+   ],
+   [
+    "Sun"
+   ],
+   [
+    "Japan"
+   ]
+  ],
+  "月": [
+   [
+    "Month"
+   ],
+   [
+    "Moon"
+   ]
+  ]
+ }
+}

@@ -209,10 +209,39 @@ const TIER_LABEL = ["not started", "learning", "operative", "solid"];
 // JUNK_GLOSS, which decides how many senses a kanji can unlock.
 const JUNK_GLOSS = /\bradical\b|^counter for\b|\(no\.\s*\d+\)|\bkokuji\b/i;
 
-/** A kanji's teachable senses, most common first. Memoised on the row. */
+/**
+ * A kanji's distinct senses, most common first — the wording to teach for each.
+ *
+ * Curated groupings win where they exist (see data/senses.json), because the raw
+ * gloss list is not a list of senses: 大's "second meaning" would otherwise be
+ * "Big", which is the same sense as "Large" said differently.
+ */
 function senses(row) {
-  if (!row.__senses) row.__senses = (row.meanings || []).filter((m) => !JUNK_GLOSS.test(m));
+  if (!row.__senses) {
+    const g = S.senseGroups && S.senseGroups[row.k];
+    row.__senses = g ? g.map((x) => x[0]).filter(Boolean)
+                     : (row.meanings || []).filter((m) => !JUNK_GLOSS.test(m));
+  }
   return row.__senses;
+}
+
+/**
+ * Whether we have curated sense groupings for this kanji.
+ *
+ * Strict grading is only fair where we do. Without groupings, "Big" for 大 looks
+ * like a different sense and would be marked wrong — a false negative that
+ * teaches the learner to distrust the app. So strictness follows the data:
+ * strict where the senses are known to be distinct, forgiving where they aren't.
+ * It tightens by itself as more of the range is curated.
+ */
+const hasCuratedSenses = (row) => !!(S.senseGroups && S.senseGroups[row.k]);
+
+/** Every accepted wording of one sense — all count as fully correct for it. */
+function senseWordings(row, idx) {
+  const g = S.senseGroups && S.senseGroups[row.k];
+  if (g && g[idx]) return g[idx];
+  const s = senses(row)[idx];
+  return s ? [s] : [];
 }
 /** The meaning this card is actually asking for. */
 function senseText(row, facet) {
@@ -357,13 +386,24 @@ function glossMatches(inp, gloss) {
  * instead of just "wrong" - that distinction is what teaches the ranking.
  * Setting strict_primary=false makes any real meaning count.
  */
+const strictFor = (row) => S.settings.strict_primary !== false && hasCuratedSenses(row);
+
 function gradeMeaning(input, row, facet) {
   const idx = SENSE_INDEX[facet] ?? 0;
   const inp = normMeaning(input);
   if (!inp) return { ok: false };
-  if (glossMatches(inp, senses(row)[idx])) return { ok: true };
-  const j = row.meanings.findIndex((m, i) => i !== idx && glossMatches(inp, m));
-  if (j >= 0) return { ok: !S.settings.strict_primary, other: row.meanings[j] };
+  // any accepted wording of this sense is fully correct, not merely tolerated
+  if (senseWordings(row, idx).some((w) => glossMatches(inp, w))) return { ok: true };
+  // a wording belonging to one of the kanji's *other* senses
+  const all = senses(row);
+  for (let i = 0; i < all.length; i++) {
+    if (i === idx) continue;
+    if (senseWordings(row, i).some((w) => glossMatches(inp, w))) {
+      return { ok: !strictFor(row), other: all[i] };
+    }
+  }
+  const j = (row.meanings || []).findIndex((m) => glossMatches(inp, m));
+  if (j >= 0) return { ok: !strictFor(row), other: row.meanings[j] };
   return { ok: false };
 }
 
@@ -4385,8 +4425,8 @@ routes.settings = async () => {
         <label>Extra meanings per day</label>${sel("sense_per_day", [0, 2, 4, 8, 15], s.sense_per_day)}
         <label>Grade the primary meaning strictly</label>
         <select id="set-strict_primary">
-          <option value="0" ${s.strict_primary ? "" : "selected"}>No — any real meaning counts (recommended)</option>
-          <option value="1" ${s.strict_primary ? "selected" : ""}>Yes — only the most common sense</option>
+          <option value="1" ${s.strict_primary !== false ? "selected" : ""}>Yes — where the senses are curated (recommended)</option>
+          <option value="0" ${s.strict_primary !== false ? "" : "selected"}>No — any real meaning always counts</option>
         </select>
       </div>
       <p class="settings-note">A kanji's second and third meanings unlock on their own once
@@ -4396,11 +4436,12 @@ routes.settings = async () => {
       <p class="settings-note">Either way, a typed meaning card <b>always tells you the most
         common sense</b>: answer 日 with “Sun” and you're told that Day is the primary one.
         The setting only decides whether the answer is also marked <i>wrong</i>.</p>
-      <p class="settings-note">It's off by default because the meaning lists mix genuinely
-        different senses (月 = Month, Moon) with near-synonyms (大 = Large, Big; 中 = In,
-        Inside, Middle). Strict grading would mark “big” wrong for 大, which teaches you
-        nothing except to distrust the app. Turn it on if you want the primary sense to be
-        the only accepted answer and you don't mind that.</p>
+      <p class="settings-note">Strictness follows the data. For the kanji whose senses have
+        been curated in <code>data/senses.json</code> — the beginner range — every reasonable
+        wording of a sense counts as fully right (“big”, “great” and “large” are all 大), so
+        being strict about <i>which sense</i> is fair. For kanji not yet curated, any real
+        meaning is accepted, because there the app can't tell a different sense from the same
+        one worded differently. It tightens on its own as more of the range is curated.</p>
       <p class="settings-note">Reading cards ask how you'd say a kanji <b>on its own</b> —
         what you'd read off a sign. Those readings are curated in
         <code>data/spoken.json</code>, which you can edit; the app still accepts the kanji's
@@ -4524,6 +4565,10 @@ $("#theme-toggle").onclick = () => {
   };
   S.spoken = { ...(await loadSpoken("/data/spoken.json")),
                ...(await loadSpoken("/data/spoken.local.json")) };
+  // curated sense groupings; the server has already merged any local overrides
+  try {
+    S.senseGroups = (await (await fetch("/data/senses.json")).json()).senses || {};
+  } catch (e) { S.senseGroups = {}; }
   await loadState();
   await loadCollections();
   if (!localStorage.getItem("kt-theme") && S.settings.theme) {

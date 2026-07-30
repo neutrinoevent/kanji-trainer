@@ -179,14 +179,31 @@ run.bat                 Windows launcher
 run.sh                  macOS/Linux launcher
 static/                 the web UI (plain HTML/CSS/JS)
 data/kanji.json         the 3,122-kanji dataset
+data/senses.json        curated meanings, grouped by sense (editable, see below)
 data/spoken.json        curated read-aloud readings (editable, see below)
 userdata/               everything you own — updates never touch this
   trainer.db            your progress (created on first run)
   snapshots/            automatic timestamped backups
   spoken.local.json     your own reading overrides (optional)
+  senses.local.json     your own meaning overrides (optional)
   exam-log.jsonl        your exam records, in plain text
 VISION.md               where the design ideas and decisions are written down
 ```
+
+### Correcting a meaning or a reading
+
+Both the senses a kanji is taught and the reading you'd say aloud are judgment
+calls, curated in `data/senses.json` and `data/spoken.json`. To change either,
+don't edit those — updating replaces them. Put your version in
+`userdata/senses.local.json` or `userdata/spoken.local.json`, which live where
+updates can't reach:
+
+```json
+{ "senses": { "安": [["Cheap", "Inexpensive"], ["Peaceful", "Calm", "Safe"]] } }
+```
+
+Each group is one sense; the first wording is the one taught, and any wording in
+the group counts as fully correct for it.
 
 ### Correcting a read-aloud reading
 

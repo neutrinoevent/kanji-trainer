@@ -134,11 +134,12 @@ DEFAULT_SETTINGS = {
     "tour_done": False,
     "path": {},          # learning-path progress: node id -> stars (1-3)
     "sense_per_day": 4,  # extra meanings unlocked per day (own budget, see below)
-    # Off by default: KANJIDIC2's gloss list mixes genuine alternate senses
-    # (月 Month/Moon) with near-synonyms (大 Large/Big, 中 In/Inside), so marking
-    # "big" wrong for 大 would be a false negative. The feedback names the primary
-    # sense either way; turn this on to have only that sense count.
-    "strict_primary": False,
+    # On by default, but only bites where senses.json has curated groupings for
+    # the kanji. There, every wording of a sense counts ("big" and "large" are
+    # both 大), so being strict about which sense is fair. Elsewhere the app
+    # can't tell a different sense from the same one worded differently, so it
+    # stays forgiving. See strictFor() in app.js.
+    "strict_primary": True,
     "goals": [],         # user-declared fluency goals
     # per-kanji notes the learner writes for themselves, usually mnemonics for
     # something that keeps slipping: {kanji: text}
@@ -176,7 +177,33 @@ KANJI_INDEX = {row["k"]: i for i, row in enumerate(KANJI_LIST)}
 # how many senses a kanji can unlock, so it MUST stay in sync with the identical
 # JUNK_GLOSS regex in static/app.js.
 JUNK_GLOSS = re.compile(r"\bradical\b|^counter for\b|\(no\.\s*\d+\)|\bkokuji\b", re.I)
-SENSES = {row["k"]: [m for m in (row.get("meanings") or []) if not JUNK_GLOSS.search(m)]
+
+
+def _load_senses():
+    """Curated sense groupings, with the user's own overrides layered on top.
+
+    Without this, a kanji's "second meaning" is whatever gloss KANJIDIC2 happened
+    to list second — which for 大 is "Big", a synonym of "Large" rather than a
+    second sense. Grouping wordings means the sense ladder only unlocks meanings
+    that are actually different, and grading can be strict about the primary
+    sense while still accepting any reasonable way of saying it.
+    """
+    groups = {}
+    for path in (os.path.join(BASE_DIR, "data", "senses.json"),
+                 os.path.join(USER_DIR, "senses.local.json")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                groups.update(json.load(f).get("senses") or {})
+        except (OSError, ValueError):
+            pass
+    return groups
+
+
+SENSE_GROUPS = _load_senses()
+# The wording taught for each sense: curated first choice, else the raw gloss.
+SENSES = {row["k"]: ([g[0] for g in SENSE_GROUPS[row["k"]] if g]
+                     if row["k"] in SENSE_GROUPS
+                     else [m for m in (row.get("meanings") or []) if not JUNK_GLOSS.search(m)])
           for row in KANJI_LIST}
 MEANING_COUNT = {k: len(v) for k, v in SENSES.items()}
 
@@ -1356,6 +1383,8 @@ class Handler(BaseHTTPRequestHandler):
         path = url.path
         if path == "/" or path == "/index.html":
             return self.serve_file("static/index.html")
+        if path == "/data/senses.json":
+            return self.send_json({"senses": SENSE_GROUPS})
         if path == "/data/spoken.local.json":
             # lives in userdata/ now; the URL is unchanged so the client and any
             # instructions written down for users still work
