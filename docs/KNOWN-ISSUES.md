@@ -104,6 +104,42 @@ interval. Drill answers also counted for nothing.
 same evidence the tiers use, and drills count as evidence (games still don't).
 The tiers themselves are unchanged and still strict.
 
+## 8. The Path ignores the set you're studying — OPEN
+
+**What.** `pathNodes()` walks `S.kanji.slice(u * 5, ...)` — always the top of the
+frequency list, regardless of what the learner has chosen to study. Someone
+working through Grade 1 who taps Path gets frequency-ordered kanji instead of
+their own set.
+
+**Effect.** The third instance of the scoping bug class, after review (V-005) and
+games (V-008). Both of those were fixed; this surface never was.
+
+**Fix.** Same shape as the other two: let the Path take a scope, carry the scope
+in every route into it, and default to the set last studied.
+
+## 9. Existing users' numbers will drop on update — OPEN
+
+**What.** "Learned", jōyō coverage and batch mastery now mean *demonstrated*
+rather than *scheduled* (V-006). A card the old code counted as learned may read
+as "learning" until the learner demonstrates it properly.
+
+**Effect.** Correct behaviour, but it looks like lost progress to anyone who
+updates. No data is lost.
+
+**Fix.** A one-time dismissible notice on first run after the update, explaining
+what changed and why the numbers moved. Roughly twenty minutes of work.
+
+## 10. Odd One Out cannot run on a narrow scope — BY DESIGN, but worth revisiting
+
+**What.** It needs three kanji sharing an on-reading, which a 25-kanji batch
+essentially never contains, so it declines scopes under 40 kanji with a reason.
+
+**Effect.** A game the learner can't use on the set they care about.
+
+**Possible fix.** Pick the odd-one-out *from* the scope and let the matching trio
+come from outside it, showing which is which. Would need care not to reintroduce
+the "why am I seeing unfamiliar kanji" complaint that V-008 fixed.
+
 ---
 
 ## Not issues, recorded so they aren't "fixed" by mistake
@@ -119,3 +155,12 @@ The tiers themselves are unchanged and still strict.
   export/import.
 - **Reading cards accept non-standalone readings with a nudge.** Deliberate —
   which reading a bare kanji takes is genuinely contested for some characters.
+- **Exams don't reschedule anything.** Deliberate (V-010 D3). A nervous run must
+  not be able to damage weeks of spacing, or nobody sits the exam.
+- **Bonus exam questions can't lower a score.** Deliberate (V-010 D8) — they lift
+  the numerator without lifting the denominator.
+- **Font variety is measured, not assumed.** Deliberate (V-009 D1). Don't
+  "simplify" the fingerprint check away; without it the feature silently lies.
+- **The exam digest chain is not tamper-proof against the user.** Known and
+  documented (V-011 D9). It catches corruption and casual editing. Real
+  verifiability needs a signing authority.
