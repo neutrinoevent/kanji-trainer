@@ -1189,6 +1189,109 @@ action in this feature that cannot be walked back.
 
 ---
 
+## V-014 — Four things a long-running learner would have hit (raised 2026-07-30)
+
+Grouped because they share a cause: features shipped over several sessions, each
+correct on its own, that together left gaps only visible to someone who had been
+studying for a while.
+
+**The numbers-moved notice.** Anyone updating across V-006 watches their learned
+count and coverage drop, which looks exactly like lost work. The dashboard now
+shows both figures side by side — what the old rule said, what the new one says —
+with the reason, once, dismissed permanently. It appears only when the learner's
+own numbers actually moved, so a new user never sees it. Telling someone
+"nothing was lost" is worth less than showing them the arithmetic.
+
+**The Path, scoped.** It always walked the top of the frequency list regardless
+of what the learner had chosen — the third instance of the class fixed for review
+(V-005) and games (V-008), and the last surface carrying it.
+
+> The care needed: path node ids double as the settings keys holding star
+> progress, so they could not change for the path people are already walking. The
+> original frequency path keeps its bare `u0-learn` keys; every other scope gets
+> a namespace. Each path keeps separate progress and switching never appears to
+> lose stars. Verified against a database with existing path progress.
+
+Scope is remembered rather than inherited from `review_scope`, because path
+progress is stateful and silently switching sets would read as loss.
+
+**The tour, refreshed.** It introduced seven screens and never mentioned Lists,
+Exams or Games — three of ten nav items, two of them the newest features. A new
+learner was walked through a program that no longer matched what was in front of
+them. A tour is a thing that rots silently; worth re-reading whenever a nav item
+is added.
+
+**Leeches.** `srs.lapses` had been recorded since v1 and read by nothing. A card
+the learner keeps failing simply returned forever — and demonstration-based
+fluency made that *worse*, because such a card can never reach operative, so it
+also permanently suppressed batch mastery, goal progress and coverage with no
+explanation of why a number was stuck. Invisible, and demoralising in a way that
+only surfaces after weeks.
+
+They are now named on the dashboard, by lapses or by a poor enough record over
+enough attempts, with three ways out:
+
+- **Park it** — out of the queue *and* out of the mastery denominator. Someone
+  who deliberately set a kanji aside is not failing at it, and a permanently
+  suppressed figure is noise. The parked count is shown alongside, so the smaller
+  denominator is visible rather than silently assumed.
+- **Start it over** — re-introduced from scratch, but lapses are kept: forgetting
+  that it had been a problem would lose the signal that flagged it.
+- **Write a note** — per-kanji, surfaced on the intro card and after every answer.
+  A mnemonic is usually what actually breaks a leech, and having to leave the app
+  to write one elsewhere is how it doesn't get written.
+
+---
+
+## V-015 — Curated senses, honest strictness, and eight files instead of one (raised 2026-07-30)
+
+### The sense data
+
+KANJIDIC2's gloss list was never a list of senses. It mixes genuinely different
+meanings (月 = Month, Moon) with plain synonyms (大 = Large, **Big**) and with
+wordings nobody would type (対 = "Vis-a-vis"). Two problems followed, and one
+file fixes both.
+
+`data/senses.json` groups the wordings of each sense with the one to teach first,
+across the beginner range — the top 150 by frequency plus all of Grade 1, which
+is 149 multi-sense kanji, all covered. **114 collapse to a single sense**, which
+stops the ladder spending a card teaching "Big" as the second meaning of 大;
+**35 keep genuinely distinct senses** and unlock properly.
+
+### D1 — Strictness follows the data, not a global switch
+
+`strict_primary` was off because marking "big" wrong for 大 is a false negative
+that teaches a learner to distrust the app rather than to distinguish senses.
+With groupings, every reasonable wording of a sense is fully correct, so being
+strict about *which sense* is fair — and it now defaults on.
+
+But only where the data supports it. Strictness applies to kanji with curated
+groupings and stays forgiving elsewhere, because without groupings the app
+genuinely cannot tell a different sense from the same one worded differently.
+It tightens by itself as curation extends, and asks the user for no decision.
+
+> **A gap worth recording.** The first pass curated only kanji that needed
+> *fixing*, leaving out ones whose glosses were already correct — including 日,
+> the most frequent kanji in the language. But the strictness gate keys off
+> *curation*, so those were graded leniently. Curating "what's wrong" and gating
+> on "what's curated" are not the same set, and the mismatch was invisible until
+> tested. Both are in now.
+
+### D2 — Eight files, still no build step
+
+`static/app.js` had reached 4,300 lines. "No build step" is a hard constraint of
+this project; a *single file* is not. It is now eight plain `<script>` tags in
+dependency order — `core`, `shell`, `lists`, `session`, `games`, `progress`,
+`pages`, `boot` — with no bundler and no module system, and
+`static/js/README.md` explaining the two rules that keep that working.
+
+Not cosmetic: several patches in recent sessions failed to apply against a file
+that size, and each failure was a chance to half-write a change. Verified after
+the split by loading every route, every game, a review session, an exam and the
+detail modal, with no load-order or runtime errors.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.

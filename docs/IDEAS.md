@@ -130,7 +130,7 @@ deliberately simplify away. Depends on 7.
 
 ## Maintenance and debt
 
-- **`static/app.js` is 4,300 lines in one file.** No build step is a hard
+- **`static/js/` — split from one 4,300-line file into eight in V-014.** No build step is a hard
   constraint, but that doesn't require a single file — several plain `<script>`
   tags in dependency order would work with no tooling at all. Worth doing before
   it gets bigger; edits to a file this size are already error-prone, and this

@@ -56,7 +56,7 @@ not yet surfaced).
 
 ## 4. `JUNK_GLOSS` regex is duplicated — maintenance hazard
 
-**What.** The same regex lives in `server.py` and `static/app.js`, with comments
+**What.** The same regex lives in `server.py` and `static/js/`, with comments
 in both demanding they stay in sync. The server uses it to decide how many
 senses a kanji may unlock; the client uses it to render and grade. If they
 diverge, the client can be asked for a sense the server thinks exists but the
@@ -104,7 +104,7 @@ interval. Drill answers also counted for nothing.
 same evidence the tiers use, and drills count as evidence (games still don't).
 The tiers themselves are unchanged and still strict.
 
-## 8. The Path ignores the set you're studying — OPEN
+## 8. ~~The Path ignores the set you're studying~~ — FIXED 2026-07-30 (V-014)
 
 **What.** `pathNodes()` walks `S.kanji.slice(u * 5, ...)` — always the top of the
 frequency list, regardless of what the learner has chosen to study. Someone
@@ -114,10 +114,11 @@ their own set.
 **Effect.** The third instance of the scoping bug class, after review (V-005) and
 games (V-008). Both of those were fixed; this surface never was.
 
-**Fix.** Same shape as the other two: let the Path take a scope, carry the scope
-in every route into it, and default to the set last studied.
+**Fixed.** The Path takes a scope with a picker at the top. Node ids double as
+star-progress keys, so the original path keeps its bare keys and every other
+scope is namespaced — each path keeps separate progress.
 
-## 9. Existing users' numbers will drop on update — OPEN
+## 9. ~~Existing users' numbers will drop on update~~ — HANDLED 2026-07-30 (V-014)
 
 **What.** "Learned", jōyō coverage and batch mastery now mean *demonstrated*
 rather than *scheduled* (V-006). A card the old code counted as learned may read
@@ -126,8 +127,8 @@ as "learning" until the learner demonstrates it properly.
 **Effect.** Correct behaviour, but it looks like lost progress to anyone who
 updates. No data is lost.
 
-**Fix.** A one-time dismissible notice on first run after the update, explaining
-what changed and why the numbers moved. Roughly twenty minutes of work.
+**Handled.** A one-time dismissible card shows both figures and the reason, and
+only appears when the learner's own numbers actually moved.
 
 ## 10. Odd One Out cannot run on a narrow scope — BY DESIGN, but worth revisiting
 

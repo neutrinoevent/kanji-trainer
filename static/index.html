@@ -36,6 +36,15 @@
 </div>
 <div id="modal-root"></div>
 <div id="tooltip" class="tooltip hidden"></div>
-<script src="/static/app.js"></script>
+<!-- Loaded in dependency order. No bundler and no module system: these are
+     plain scripts sharing one scope, so order matters. core first, boot last. -->
+<script src="/static/js/core.js"></script>
+<script src="/static/js/shell.js"></script>
+<script src="/static/js/lists.js"></script>
+<script src="/static/js/session.js"></script>
+<script src="/static/js/games.js"></script>
+<script src="/static/js/progress.js"></script>
+<script src="/static/js/pages.js"></script>
+<script src="/static/js/boot.js"></script>
 </body>
 </html>

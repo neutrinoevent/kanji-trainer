@@ -177,7 +177,8 @@ everything else in the app.
 server.py               the backend (Python standard library only)
 run.bat                 Windows launcher
 run.sh                  macOS/Linux launcher
-static/                 the web UI (plain HTML/CSS/JS)
+static/                 the web UI (plain HTML/CSS/JS, no build step)
+  js/                   the frontend in eight plain scripts — see js/README.md
 data/kanji.json         the 3,122-kanji dataset
 data/senses.json        curated meanings, grouped by sense (editable, see below)
 data/spoken.json        curated read-aloud readings (editable, see below)
