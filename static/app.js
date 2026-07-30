@@ -633,6 +633,7 @@ routes.dashboard = async () => {
       <button class="ghost-btn" id="go-games">Play a game</button>
     </div>
     ${recoveryCard()}
+    ${fluencyNotice(stats)}
     ${goalSpotlight(stats)}
     <div class="card chart-card">
       <div class="chart-title">Today's goals</div>
@@ -652,6 +653,12 @@ routes.dashboard = async () => {
   $("#go-review").onclick = () => (location.hash = "#/review");
   $("#go-study").onclick = () => (location.hash = "#/study");
   $("#go-games").onclick = () => (location.hash = "#/games");
+  const notice = $("#notice-ok");
+  if (notice) notice.onclick = async () => {
+    S.settings.fluency_notice_seen = true;
+    await api("/api/settings", { fluency_notice_seen: true }).catch(() => {});
+    routes.dashboard();
+  };
   const rec = $("#rec-restore");
   if (rec) rec.onclick = async () => {
     rec.disabled = true;
@@ -675,6 +682,49 @@ routes.dashboard = async () => {
     startTour();
   }
 };
+
+/**
+ * Shown once, to someone whose counts just dropped because the definition of
+ * "learned" changed under them.
+ *
+ * Nothing was lost, but a number going from 47 to 12 overnight looks exactly
+ * like loss, and telling someone "trust us, it's fine" is worth less than
+ * showing them both figures and the reason. Only appears when their own numbers
+ * actually moved — a learner who started after the change never sees it.
+ */
+function fluencyNotice(st) {
+  if (S.settings.fluency_notice_seen) return "";
+  if (!st.total_reviews) return "";
+  const before = st.legacy_learned || 0;
+  const after = st.rungs ? st.rungs.both : 0;
+  if (before <= after) return "";        // nothing moved for this learner
+  return `
+    <div class="card notice-card">
+      <div class="chart-title">Your numbers changed — your work didn't</div>
+      <p class="sub" style="margin:6px 0 10px">This version measures what you've
+        <b>demonstrated</b> rather than what the scheduler happened to have moved along.
+        On your history that reads:</p>
+      <div class="notice-compare">
+        <div class="nc-cell"><span class="nc-label">Learned, old rule</span>
+          <span class="nc-val old">${before}</span>
+          <span class="nc-note">a card the scheduler had graduated</span></div>
+        <div class="nc-arrow">→</div>
+        <div class="nc-cell"><span class="nc-label">Learned, now</span>
+          <span class="nc-val">${after}</span>
+          <span class="nc-note">produced from memory, more than one question type, more than one day</span></div>
+      </div>
+      <p class="sub" style="margin:12px 0 0">Every answer you have ever given is still
+        here — all ${st.total_reviews.toLocaleString()} of them — and all of it counts
+        toward the new measure. The bar moved, not your history. The ${before - after}
+        kanji in the gap aren't lost; they need showing again on another day, and typing
+        rather than picking from four. Any kanji's card will tell you exactly what it's
+        still waiting for.</p>
+      <div class="row" style="margin-top:14px">
+        <button class="primary-btn" id="notice-ok">Got it</button>
+        <button class="ghost-btn" onclick="location.hash='#/stats'">See where I stand</button>
+      </div>
+    </div>`;
+}
 
 /**
  * Offered when the store is empty but a backup holds real work — after a folder
@@ -720,8 +770,8 @@ function goalSpotlight(stats) {
   const ladder = r.seen ? `
     <div class="card chart-card">
       <div class="chart-title">Fluency ladder</div>
-      <div class="chart-sub">Of ${r.seen} kanji in rotation, counted at the operative bar
-        at the operative bar: produced from memory, in more than one kind of
+      <div class="chart-sub">Of ${r.seen} kanji in rotation, counted at the operative bar:
+        produced from memory, in more than one kind of
         question, on more than one day.</div>
       <div class="hbars">
         ${rungBar("Meaning", r.meaning || 0, r.seen, "Most common meaning, operative")}
@@ -2678,7 +2728,7 @@ const BADGES = [
 
 function badgeSection(st) {
   const px = { ...pathContext(), ...examContext(), level: levelInfo(calcXP(st)).lvl };
-  const nodes = S.kanji.length ? pathNodes() : [];
+  const nodes = S.kanji.length ? pathNodes(null) : [];   // the original path
   const sec1 = nodes.filter((n) => n.unit < 4 && n.type !== "gift");
   px.firstSection = sec1.length > 0 && sec1.every((n) => (S.settings.path || {})[n.id] > 0);
   const earned = BADGES.filter((b) => { try { return b.test(st, px); } catch { return false; } });
@@ -2802,22 +2852,37 @@ const NODE_META = {
   gift: { icon: "🎁", label: "Treasure" },
 };
 
-function pathNodes() {
-  const topN = Math.min(S.settings.top_n, S.kanji.length);
-  const units = Math.floor(topN / 5);
+/**
+ * Node ids double as the keys under which star progress is stored, so they
+ * cannot change for the path people are already walking. The original
+ * frequency-ordered path keeps its bare `u0-learn` keys; every other scope gets
+ * its own namespace. Each path therefore keeps separate progress, and nobody's
+ * existing stars move.
+ */
+const pathKey = (sc, u, kind) => (sc ? `${scopeSuffix(sc)}:u${u}-${kind}` : `u${u}-${kind}`);
+
+/** The kanji a path walks, in teaching order. */
+function pathSource(sc) {
+  if (!sc) return S.kanji.slice(0, Math.min(S.settings.top_n, S.kanji.length));
+  return (scopeChars(sc) || []).map((k) => S.byChar[k]).filter(Boolean);
+}
+
+function pathNodes(sc) {
+  const src = pathSource(sc);
+  const units = Math.floor(src.length / 5);
   const nodes = [];
   for (let u = 0; u < units; u++) {
-    const chars = S.kanji.slice(u * 5, u * 5 + 5);
-    nodes.push({ id: `u${u}-learn`, type: "learn", unit: u, chars });
-    nodes.push({ id: `u${u}-quiz`, type: "quiz", unit: u, chars });
+    const chars = src.slice(u * 5, u * 5 + 5);
+    nodes.push({ id: pathKey(sc, u, "learn"), type: "learn", unit: u, chars });
+    nodes.push({ id: pathKey(sc, u, "quiz"), type: "quiz", unit: u, chars });
     if (u % 3 === 2) {
-      nodes.push({ id: `u${u}-game`, type: "game", unit: u,
-                   chars: S.kanji.slice(Math.max(0, u * 5 - 10), u * 5 + 5) });
+      nodes.push({ id: pathKey(sc, u, "game"), type: "game", unit: u,
+                   chars: src.slice(Math.max(0, u * 5 - 10), u * 5 + 5) });
     }
     if (u % 5 === 4) {
-      nodes.push({ id: `u${u}-boss`, type: "boss", unit: u,
-                   chars: S.kanji.slice((u - 4) * 5, u * 5 + 5) });
-      nodes.push({ id: `u${u}-gift`, type: "gift", unit: u,
+      nodes.push({ id: pathKey(sc, u, "boss"), type: "boss", unit: u,
+                   chars: src.slice((u - 4) * 5, u * 5 + 5) });
+      nodes.push({ id: pathKey(sc, u, "gift"), type: "gift", unit: u,
                    giftIndex: Math.floor(u / 5) });
     }
   }
@@ -2837,18 +2902,74 @@ async function pathMark(id, stars) {
   }
 }
 
-routes.path = async () => {
+routes.path = async (arg) => {
   await loadState();
-  const nodes = pathNodes();
+  await loadCollections();
+  // The Path used to walk the frequency list no matter what the learner had
+  // chosen to study — the same fault fixed for review (V-005) and games (V-008).
+  // The scope is remembered rather than inherited from review_scope, because
+  // path progress is stateful: silently switching sets would look like lost stars.
+  if (arg !== undefined && arg !== "") {
+    const picked = arg === "all" ? null : parseScope(arg);
+    if (arg === "all" || picked) {
+      S.pathScope = picked;
+      const suffix = scopeSuffix(picked);
+      if (S.settings.path_scope !== suffix) {
+        S.settings.path_scope = suffix;
+        await api("/api/settings", { path_scope: suffix }).catch(() => {});
+      }
+    }
+  } else {
+    const saved = S.settings.path_scope || "all";
+    S.pathScope = saved === "all" ? null : parseScope(saved);
+  }
+  const sc = S.pathScope;
+  const nodes = pathNodes(sc);
+  if (sc && !nodes.length) {
+    setMain(`
+      <h1>Path · ${esc(scopeLabel(sc))}</h1>
+      <div class="card" style="text-align:center;padding:38px 22px">
+        <h2 style="margin-top:0">Not enough kanji for a path</h2>
+        <p class="sub">A path walks five kanji at a time, so this set needs at least five.
+          <b>${esc(scopeLabel(sc))}</b> has ${(scopeChars(sc) || []).length}.</p>
+        <div class="row" style="justify-content:center">
+          <button class="primary-btn" onclick="location.hash='#/path/all'">Walk the main path</button>
+          <button class="ghost-btn" onclick="location.hash='#/lists'">Lists</button>
+        </div>
+      </div>`);
+    return;
+  }
   const done = S.settings.path || {};
   let firstOpen = nodes.findIndex((n) => !done[n.id]);
   if (firstOpen === -1) firstOpen = nodes.length;
   const doneCount = nodes.filter((n) => done[n.id]).length;
 
   const px = pathContext();
+  const pathOpts = [{ sc: null, label: "Most common kanji" }];
+  for (const l of lists()) {
+    if (listKanji(l).length >= 5) pathOpts.push({ sc: { list: l.id }, label: "List · " + l.name });
+  }
+  for (const a of activeScopes(false).list) {
+    pathOpts.push({ sc: { cid: a.col.id, from: null, to: null }, label: a.col.name });
+    for (const b of a.batches.slice(0, 4)) {
+      pathOpts.push({ sc: { cid: a.col.id, from: b.index, to: b.index },
+                      label: `${a.col.name} · Batch ${b.index + 1}` });
+    }
+  }
+  const curScope = scopeSuffix(sc);
+
   let html = `
     <h1>Path</h1>
-    <p class="sub">A guided road through the most common kanji, five at a time: learn them, quiz them, and clear a checkpoint every few steps. ${doneCount} of ${nodes.length} steps done.</p>
+    <p class="sub">A guided road ${sc ? `through <b>${esc(scopeLabel(sc))}</b>` : "through the most common kanji"},
+      five at a time: learn them, quiz them, and clear a checkpoint every few steps.
+      ${doneCount} of ${nodes.length} steps done.</p>
+    ${pathOpts.length > 1 ? `<div class="card" style="margin-bottom:14px">
+      <div class="chart-title">Which kanji does this path walk?</div>
+      <div class="chart-sub">Each set keeps its own stars, so switching never loses progress.</div>
+      <div class="scope-chips">${pathOpts.map((o) => `
+        <button class="chip ${scopeSuffix(o.sc) === curScope ? "on" : ""}"
+          onclick="location.hash='#/path/${scopeSuffix(o.sc)}'">${esc(o.label)}</button>`).join("")}
+      </div></div>` : ""}
     <div class="row" style="margin-bottom:8px">
       <span class="pill">★ ${px.stars} stars</span>
       <span class="pill">🏯 ${px.bosses} checkpoints</span>
@@ -2857,7 +2978,10 @@ routes.path = async () => {
     <div class="path-wrap">`;
   nodes.forEach((n, i) => {
     if (n.type === "learn" && n.unit % 4 === 0) {
-      html += `<div class="path-section"><span class="pill">Kanji #${n.unit * 5 + 1}–${Math.min((n.unit + 4) * 5, S.settings.top_n)}</span></div>`;
+      const total = pathSource(sc).length;
+      html += `<div class="path-section"><span class="pill">${sc ? "" : "Kanji "}#${
+        n.unit * 5 + 1}–${Math.min((n.unit + 4) * 5, total)}${
+        sc ? ` of ${esc(scopeLabel(sc))}` : ""}</span></div>`;
     }
     const stars = done[n.id] || 0;
     const state = stars ? "done" : i === firstOpen ? "current" : i < firstOpen ? "done" : "locked";

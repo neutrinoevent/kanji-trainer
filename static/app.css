@@ -687,3 +687,14 @@ h2 { font-size: 17px; margin: 26px 0 12px; }
   .snap-row { grid-template-columns: 1fr auto; gap: 4px 10px; }
   .snap-why, .snap-size { display: none; }
 }
+
+/* ============================================================ one-time notice */
+.notice-card { border-color: var(--warn); }
+.notice-compare { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
+.nc-cell { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+           padding: 12px 16px; flex: 1; min-width: 190px; }
+.nc-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.nc-val { display: block; font-size: 30px; font-weight: 800; line-height: 1.1; margin: 3px 0; }
+.nc-val.old { color: var(--muted); }
+.nc-note { display: block; font-size: 12px; color: var(--ink-2); line-height: 1.45; }
+.nc-arrow { color: var(--muted); font-size: 20px; }

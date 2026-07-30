@@ -140,8 +140,13 @@ DEFAULT_SETTINGS = {
     # sense either way; turn this on to have only that sense count.
     "strict_primary": False,
     "goals": [],         # user-declared fluency goals
+    # which set the Path walks; "all" is the original frequency-ordered path
+    "path_scope": "all",
     # last review scope the user picked ("all", or "c/<collection>[/<from>-<to>]")
     "review_scope": "all",
+    # One-time explainer shown after the move to demonstration-based fluency,
+    # because a learner's counts drop on update and that looks like data loss.
+    "fluency_notice_seen": False,
     # User-made lists of kanji. Purely a grouping: adding a kanji to a list does
     # not start it, and deleting a list never touches SRS progress or reviews.
     # Shape: [{id, name, kanji: "日一人", created, note}]
@@ -819,6 +824,15 @@ def get_stats(settings):
     # produced from memory across several kinds of question on several days.
     # Counting cards the scheduler happened to graduate told learners they were
     # done when they were not.
+    # What the pre-V-006 rules would have said. Carried purely so the one-time
+    # notice can show the learner both numbers side by side instead of asserting
+    # that nothing was lost and expecting them to take it on faith.
+    legacy = conn.execute(
+        "SELECT COUNT(DISTINCT kanji) n FROM srs WHERE state='review'").fetchone()["n"]
+    legacy_mature = conn.execute(
+        "SELECT COUNT(DISTINCT kanji) n FROM srs"
+        " WHERE state='review' AND interval>=21").fetchone()["n"]
+
     learned = rungs["both"]
     mature = rungs["solid"]
     fluent_chars = {k for k, t in tiers.items()
@@ -836,6 +850,8 @@ def get_stats(settings):
     return {
         "rungs": rungs,
         "senses": senses,
+        "legacy_learned": legacy,
+        "legacy_mature": legacy_mature,
         "days": days,
         "total_reviews": totals["n"] or 0,
         "total_correct": totals["c"] or 0,
