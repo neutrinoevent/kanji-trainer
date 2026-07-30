@@ -1043,6 +1043,20 @@ sign it with.
 
 Carried over from earlier sessions and this audit. Not commitments.
 
+- **Shareable, verifiable certificates** for passed exams. Records are already
+  sealed and chained for exactly this (V-011); what's missing is an authority to
+  sign them, which is a hosting decision.
+- **A one-time "your numbers moved" notice** for users updating across the
+  demonstration-based fluency change (`docs/KNOWN-ISSUES.md` #9).
+- **Scope the Path** — the last unscoped surface (`docs/KNOWN-ISSUES.md` #8).
+- **Exam variants**: timed mode; reading-only or meaning-only papers; a
+  recertification exam sampling across every batch already passed.
+- **Bring exam misses forward in the schedule** — considered and rejected in
+  V-010 D3. Worth revisiting once we know whether the drill-the-missed button
+  actually gets used.
+- **Bundle a 教科書体 face?** The most pedagogically useful typeface and the least
+  likely to be installed. Rejected for now on size: a Japanese font is 5–20 MB
+  against a 500 KB repo.
 - Double-XP combo for perfect runs; weekly quests; charm rarities.
 - Per-kanji example vocabulary (would make the on/kun split concrete — a strong
   companion to V-001's D4, since it shows *why* the reading changes).
