@@ -59,11 +59,37 @@ def mirror_dir():
     return os.path.join(base, "kanji-trainer")
 
 
+LEGACY_DB = os.path.join(BASE_DIR, "data", "trainer.db")
+
+
+def checkpoint_db(path):
+    """Fold the write-ahead log back into the main file before moving it.
+
+    A database in WAL mode keeps recent commits in a sidecar `-wal` file. Moving
+    the `.db` without it silently loses whatever hadn't been checkpointed — which
+    for someone who closed the app mid-session is their last study run. Folding
+    it in first makes the `.db` self-contained, so the move cannot lose anything
+    even if the sidecars are left behind.
+    """
+    if not os.path.exists(path):
+        return
+    try:
+        conn = sqlite3.connect(path)
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.close()
+    except sqlite3.Error:
+        pass          # fall through: the sidecars still move with it below
+
+
 def migrate_userdata():
-    """Move pre-userdata/ files into place. Moves, never copies, and never
-    overwrites — if both exist the newer arrangement wins and the old file is
-    left alone rather than silently discarded."""
+    """Move pre-userdata/ files into place.
+
+    Moves, never copies, and never overwrites. If a target already exists the
+    source is left exactly where it is rather than being discarded — see
+    `stranded_legacy()` for how that situation is surfaced instead of ignored.
+    """
     os.makedirs(SNAP_DIR, exist_ok=True)
+    checkpoint_db(LEGACY_DB)
     moved = []
     for rel, dst in _LEGACY:
         src = os.path.join(BASE_DIR, rel)
@@ -74,8 +100,30 @@ def migrate_userdata():
             except OSError:
                 pass
     if moved:
-        print(f"Moved your data into userdata/: {', '.join(moved)}")
+        print(f"Moved your data into userdata/: {', '.join(moved)}", flush=True)
     return moved
+
+
+def stranded_legacy():
+    """A pre-update database left behind because userdata/ was already occupied.
+
+    Rare, but the consequence is severe and silent: the learner opens the app,
+    sees an empty or unfamiliar history, and concludes their progress is gone
+    while it is sitting untouched one directory away. Nothing is ever deleted, so
+    the fix is to notice and say so.
+    """
+    if not os.path.exists(LEGACY_DB):
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{LEGACY_DB}?mode=ro", uri=True)
+        rows = conn.execute("SELECT (SELECT COUNT(*) FROM reviews) r,"
+                            " (SELECT COUNT(*) FROM srs) s").fetchone()
+        conn.close()
+    except sqlite3.Error:
+        return None
+    if not (rows[0] or rows[1]):
+        return None
+    return {"path": LEGACY_DB, "reviews": rows[0], "srs": rows[1]}
 
 DEFAULT_SETTINGS = {
     "top_n": 1000,
@@ -1138,13 +1186,26 @@ def read_snapshot(name, directory=None):
 
 
 def recovery_offer():
-    """If the live store is empty but a snapshot holds real work, say so.
+    """Something recoverable that the learner should be told about.
 
-    Deliberately an offer rather than an automatic restore: a learner who has
-    just deliberately reset their progress must not have it silently resurrected.
+    Two cases: the live store is empty but a snapshot holds real work, or a
+    pre-update database is stranded in data/ holding more than what is loaded.
+    Deliberately an offer rather than an automatic restore — someone who has just
+    reset their progress on purpose must not have it silently resurrected.
     """
     row = db().execute(
         "SELECT (SELECT COUNT(*) FROM reviews) r, (SELECT COUNT(*) FROM srs) s").fetchone()
+
+    # A stranded pre-update database is worth surfacing even when the current
+    # store has data in it — in fact especially then, because that is the case
+    # where the learner sees a plausible-looking but wrong history and has no
+    # reason to suspect anything. Offer it when it holds more than what's loaded.
+    old = stranded_legacy()
+    if old and old["reviews"] > row["r"]:
+        return {"source": "legacy", "reviews": old["reviews"], "srs": old["srs"],
+                "exams": 0, "ts": "", "name": "", "path": old["path"],
+                "current_reviews": row["r"]}
+
     if row["r"] or row["s"]:
         return None
     best, source = None, None
@@ -1154,7 +1215,13 @@ def recovery_offer():
                 continue
             if best is None or snap.get("ts", "") > best.get("ts", ""):
                 best, source = snap, src
-    return {**best, "source": source} if best else None
+    if best:
+        return {**best, "source": source}
+    if old:
+        return {"source": "legacy", "reviews": old["reviews"], "srs": old["srs"],
+                "exams": 0, "ts": "", "name": "", "path": old["path"],
+                "current_reviews": row["r"]}
+    return None
 
 
 def snapshot_thread():
@@ -1404,6 +1471,29 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True,
                                    "snapshot": write_snapshot(body.get("reason") or "manual")})
 
+        if path == "/api/adopt-legacy":
+            # Take over a pre-update database left stranded in data/. The current
+            # store is snapshotted first, and the old file is renamed rather than
+            # deleted, so both copies still exist afterwards.
+            old = stranded_legacy()
+            if not old:
+                return self.send_json({"error": "nothing to adopt"}, 400)
+            try:
+                write_snapshot("pre-adopt")
+                checkpoint_db(LEGACY_DB)
+                for suffix in ("", "-wal", "-shm"):
+                    p = DB_FILE + suffix
+                    if os.path.exists(p):
+                        os.replace(p, p + ".replaced")
+                shutil.move(LEGACY_DB, DB_FILE)
+                if hasattr(_local, "conn"):
+                    _local.conn.close()
+                    del _local.conn
+                init_db()
+            except OSError as e:
+                return self.send_json({"error": str(e)}, 500)
+            return self.send_json({"ok": True, "adopted": old})
+
         if path == "/api/restore":
             # Snapshot the current state first, so restoring is itself undoable.
             try:
@@ -1465,17 +1555,25 @@ def main():
     try:
         snap = maybe_snapshot("startup")
         if snap:
-            print(f"Backup saved: userdata/snapshots/{snap['name']}")
+            print(f"Backup saved: userdata/snapshots/{snap['name']}", flush=True)
         offer = recovery_offer()
-        if offer:
+        if offer and offer.get("source") == "legacy":
+            print(f"Found a pre-update database at data/trainer.db with "
+                  f"{offer['reviews']} answers — the app will offer to adopt it.", flush=True)
+        elif offer:
             print(f"No progress found, but a backup from {offer['ts']} holds "
-                  f"{offer['reviews']} answers — the app will offer to restore it.")
+                  f"{offer['reviews']} answers — the app will offer to restore it.", flush=True)
+        stray = stranded_legacy()
+        if stray and not offer:
+            print(f"NOTE: data/trainer.db still holds {stray['reviews']} answers and was "
+                  f"not moved because userdata/trainer.db already exists. Nothing was "
+                  f"deleted; the app will offer to adopt it.", flush=True)
     except Exception as e:
         print(f"(backup skipped: {e})")
     threading.Thread(target=snapshot_thread, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{port}"
-    print(f"Kanji Trainer running at {url}  (Ctrl+C to stop)")
+    print(f"Kanji Trainer running at {url}  (Ctrl+C to stop)", flush=True)
     threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:
         server.serve_forever()

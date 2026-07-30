@@ -140,6 +140,20 @@ essentially never contains, so it declines scopes under 40 kanji with a reason.
 come from outside it, showing which is which. Would need care not to reintroduce
 the "why am I seeing unfamiliar kanji" complaint that V-008 fixed.
 
+## 11. A pre-update database can be stranded in `data/` — HANDLED, worth knowing
+
+**What.** Migration into `userdata/` never overwrites an existing target. If
+`userdata/trainer.db` already exists (a newer version was run once, an install
+was copied over another, two copies in play), the old `data/trainer.db` stays
+put and the app loads the other one.
+
+**Effect.** Nothing is deleted, but the learner sees an unfamiliar history and
+may conclude their progress is gone.
+
+**Handled.** The app detects it, and if the stranded database holds more answers
+than what's loaded it offers to adopt it on the dashboard. Adopting keeps the
+previous store as `.replaced` and snapshots first. Not silent either way.
+
 ---
 
 ## Not issues, recorded so they aren't "fixed" by mistake

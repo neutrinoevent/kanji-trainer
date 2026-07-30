@@ -657,7 +657,8 @@ routes.dashboard = async () => {
     rec.disabled = true;
     rec.textContent = "Restoring…";
     try {
-      await api("/api/restore", { name: S.recovery.name, source: S.recovery.source });
+      if (S.recovery.source === "legacy") await api("/api/adopt-legacy", {});
+      else await api("/api/restore", { name: S.recovery.name, source: S.recovery.source });
       location.reload();
     } catch (e) { toast("Restore failed: " + e.message); rec.disabled = false; }
   };
@@ -684,22 +685,31 @@ routes.dashboard = async () => {
 function recoveryCard() {
   const r = S.recovery;
   if (!r) return "";
+  const legacy = r.source === "legacy";
+  const held = `<b>${r.reviews}</b> answers across <b>${r.srs}</b> cards${
+    r.exams ? ` and ${r.exams} exam record${r.exams === 1 ? "" : "s"}` : ""}`;
+  const when = r.ts ? ` from <b>${esc(r.ts.replace("T", " ").replace("Z", " UTC"))}</b>` : "";
   return `
     <div class="card recovery-card">
-      <div class="chart-title">There's a backup we can put back</div>
-      <p class="sub" style="margin:6px 0 12px">This copy of the app has no progress in it,
-        but a backup from <b>${esc(r.ts.replace("T", " ").replace("Z", " UTC"))}</b> holds
-        <b>${r.reviews}</b> answers across <b>${r.srs}</b> cards${
-        r.exams ? ` and ${r.exams} exam record${r.exams === 1 ? "" : "s"}` : ""}.
-        ${r.source === "mirror"
-          ? "It was found outside the app folder, where updates and re-installs can't reach it."
-          : "It was found in this install's own backups."}</p>
+      <div class="chart-title">${legacy
+        ? "An older database of yours holds more than what's loaded"
+        : "There's a backup we can put back"}</div>
+      <p class="sub" style="margin:6px 0 12px">${legacy
+        ? `A database from a version before this one is still sitting at
+           <code>data/trainer.db</code>, holding ${held}. It wasn't moved automatically
+           because this install already had its own${r.current_reviews
+             ? ` (with ${r.current_reviews} answers in it)` : ""}.`
+        : `This copy of the app has no progress in it, but a backup${when} holds ${held}.
+           ${r.source === "mirror"
+             ? "It was found outside the app folder, where updates and re-installs can't reach it."
+             : "It was found in this install's own backups."}`}</p>
       <div class="row">
-        <button class="primary-btn" id="rec-restore">Restore it</button>
+        <button class="primary-btn" id="rec-restore">${legacy ? "Use the older one" : "Restore it"}</button>
         <button class="ghost-btn" id="rec-dismiss">Not now</button>
       </div>
-      <p class="settings-note" style="margin-bottom:0">Restoring replaces whatever is here —
-        which is nothing — and takes its own backup first, so it can be undone.</p>
+      <p class="settings-note" style="margin-bottom:0">${legacy
+        ? "Nothing is deleted either way. Switching keeps the current database alongside it as <code>.replaced</code>, and takes a backup first."
+        : "Restoring takes a backup of the current state first, so it can be undone."}</p>
     </div>`;
 }
 
