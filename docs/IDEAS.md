@@ -33,7 +33,27 @@ update, because those now mean *demonstrated* rather than *scheduled* (V-006).
 Correct behaviour that looks exactly like lost progress. One dismissible card on
 first run after the update. `KNOWN-ISSUES` #9.
 
-### 4. Visually-similar distractors — `M`
+### 4. The first-run tour is three features out of date — `S`
+It covers Dashboard, Path, Batches, Goals, Review, Stats, Settings — and never
+mentions **Lists, Exams or Games**, three of the ten nav items and two of them
+the newest and least discoverable things in the app. A new learner is introduced
+to a program that no longer matches what's in front of them. Also worth revisiting
+now that review is scoped: the tour still describes review as "your daily queue"
+without mentioning that it can be narrowed to exactly what you're studying.
+
+### 5. Leech handling — the data is already there, unused — `M`
+`srs.lapses` has been recorded since v1 and **nothing reads it**. A card the
+learner keeps failing just comes back forever. Demonstration-based fluency makes
+this worse than it used to be: such a card can never reach operative, so it also
+permanently suppresses batch mastery, goal progress and jōyō coverage, with no
+way to intervene and no explanation of why the number is stuck.
+
+Wants: surface them ("these six are fighting you"), and offer real choices —
+park it, relearn it deliberately from the intro card, or add a note/mnemonic.
+Anki suspends leeches; parking plus a nudge is probably gentler and fits this
+app's voice better.
+
+### 6. Visually-similar distractors — `M`
 Multiple choice currently draws distractors from frequency neighbours, which is
 plausible but not *hard*. Confusion pairs — 士/土, 未/末, 待/持, 開/閉 — are what
 actually catch a reader out. Needs a similarity source: shared radical +
@@ -41,14 +61,14 @@ stroke-count proximity is computable from the existing dataset; a curated pair
 list would be better for the frequent range. The sibling hiragana-trainer likely
 has confusable-pair machinery worth reading first.
 
-### 5. Example vocabulary per kanji — `M`
+### 7. Example vocabulary per kanji — `M`
 Makes the on/kun split concrete: showing 日本 / 日曜日 / 今日 is *why* 日 is ひ
 alone but にち in compounds. Needs a vocabulary source (JMdict, CC BY-SA, same
 attribution treatment as KANJIDIC2). Also unlocks idea 6.
 
-### 6. Compound-reading drill — `M`
+### 8. Compound-reading drill — `M`
 Given 日本, is 日 read にち, じつ or ひ? Tests exactly what the read-aloud cards
-deliberately simplify away. Depends on 5.
+deliberately simplify away. Depends on 7.
 
 ---
 
@@ -107,6 +127,20 @@ deliberately simplify away. Depends on 5.
 - **Surface backup health on the dashboard** — a quiet line if the external
   mirror hasn't been writable for a while, since that is the copy that survives
   losing the folder and its failure is currently silent. `S`
+
+## Maintenance and debt
+
+- **`static/app.js` is 4,300 lines in one file.** No build step is a hard
+  constraint, but that doesn't require a single file — several plain `<script>`
+  tags in dependency order would work with no tooling at all. Worth doing before
+  it gets bigger; edits to a file this size are already error-prone, and this
+  session lost time to patches failing to match in it. Suggested split: core/state,
+  scopes+lists, review/session, games, exam, pages. `M`
+- **The dashboard is accumulating cards** — recovery, fluency ladder, goal
+  spotlight, daily goals, activity chart, next-batch hint. Fine for now, but it
+  needs an editor's pass before the next thing is added to it. `S`
+- **Two known-stale test assertions** (`game:odd`; a removed `__lastSess` hook).
+  Harmless but they cost attention every regression run. `S`
 
 ## Rejected, and why — so they aren't re-proposed
 
