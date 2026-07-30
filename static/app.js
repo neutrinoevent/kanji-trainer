@@ -181,6 +181,7 @@ const fontStyle = (f) => (f ? ` style="font-family:'${f.family}',var(--jp)"` : "
 //   4. pick up its further meanings later, once rung 2 is genuinely solid
 // Rungs 2-4 are SRS facets: meaning, then sense2/sense3 unlocked by the server.
 
+const CORE_FACETS = ["meaning", "reading"];
 const SENSE_FACETS = ["sense2", "sense3"];
 const MEANING_FACETS = ["meaning", ...SENSE_FACETS];
 const SENSE_INDEX = { meaning: 0, sense2: 1, sense3: 2 };
@@ -508,12 +509,18 @@ const TOUR_STEPS = [
     body: "Pick a track: newspaper frequency, JLPT level, school grade, or name kanji. Start Batch 1 to add its kanji to your rotation. A kanji shared by several sets is only ever added once." },
   { sel: '[data-nav="goals"]', title: "Goals",
     body: "Name a set and a date that matters to you — \"Grade 1, first two batches, by September\". Three things count as knowing a kanji here: you recognise it, you know its most common meaning, and you can read it aloud. Further meanings unlock on their own later. The app will tell you if your pace won't reach the date." },
+  { sel: '[data-nav="lists"]', title: "Lists",
+    body: "Your own groupings — the ones you keep missing, a set you're building for a trip. You can add a kanji to a list from wherever you happen to be: mid-review, on the batches grid, from your stats. A list can then be reviewed, drilled, played or examined exactly like a built-in set." },
   { sel: '[data-nav="review"]', title: "Review",
-    body: "Your daily queue. Each kanji has a meaning card and a reading card, and the schedule decides when you see them again: right answers push a card further out, misses bring it back." },
+    body: "Your daily queue. Each kanji has a meaning card and a reading card, and the schedule decides when you see them again. You don't have to take the whole queue at once — review can be narrowed to one set, one batch or one list, so studying Grade 1 doesn't mean being asked about everything you've ever started." },
+  { sel: '[data-nav="exam"]', title: "Exams",
+    body: "When you've finished a set, sit an exam on it: every kanji, from several angles, feedback held back until the end. It never touches your review schedule, so a bad day costs nothing but the time — and passing means you can honestly say you know that set." },
+  { sel: '[data-nav="games"]', title: "Games",
+    body: "Eight of them, from matching pairs to holding a gate against zombies. Pick which set they draw from — they only ever ask about kanji you've chosen. Results count in your stats without touching your schedule." },
   { sel: '[data-nav="stats"]', title: "Stats",
-    body: "Streak, accuracy, batch mastery, and the kanji you miss most. The Games page adds extra practice that counts here without touching your review schedule." },
+    body: "Streak, accuracy, batch mastery, badges, and the kanji you miss most. Knowing a kanji here means having demonstrated it — produced from memory, in more than one kind of question, on more than one day — so the numbers are earned rather than waited out." },
   { sel: '[data-nav="settings"]', title: "Settings",
-    body: "Batch size, new kanji per day, theme, and JSON backups of your progress. That's the tour." },
+    body: "Batch size, new kanji per day, theme, and your backups. Your progress is saved automatically and copied outside the app folder, so it survives updates and reinstalls. That's the tour — everything here is optional except showing up." },
 ];
 
 function startTour() {
@@ -634,6 +641,7 @@ routes.dashboard = async () => {
     </div>
     ${recoveryCard()}
     ${fluencyNotice(stats)}
+    ${leechCard(stats)}
     ${goalSpotlight(stats)}
     <div class="card chart-card">
       <div class="chart-title">Today's goals</div>
@@ -653,6 +661,7 @@ routes.dashboard = async () => {
   $("#go-review").onclick = () => (location.hash = "#/review");
   $("#go-study").onclick = () => (location.hash = "#/study");
   $("#go-games").onclick = () => (location.hash = "#/games");
+  bindLeechItems($("#main"));
   const notice = $("#notice-ok");
   if (notice) notice.onclick = async () => {
     S.settings.fluency_notice_seen = true;
@@ -682,6 +691,46 @@ routes.dashboard = async () => {
     startTour();
   }
 };
+
+const FACET_NAME = { meaning: "meaning", reading: "reading", sense2: "2nd meaning", sense3: "3rd meaning" };
+
+/**
+ * Cards that are fighting the learner.
+ *
+ * These were previously invisible: a card you keep failing simply returned
+ * forever, and because it can never reach operative it also quietly held down
+ * batch mastery, goals and coverage with no explanation. Naming them and
+ * offering a way out is the whole point — the alternative is a learner who
+ * concludes the numbers are broken.
+ */
+function leechCard(st) {
+  const l = st.leeches || [];
+  if (!l.length) return "";
+  const shown = l.slice(0, 8);
+  return `
+    <div class="card leech-card">
+      <div class="chart-title">${st.leech_total} card${st.leech_total === 1 ? " is" : "s are"} fighting you</div>
+      <div class="chart-sub">Missed often enough that repetition alone probably isn't going to
+        fix them. They also can't count toward your totals until they come good, which is part of
+        why a batch can feel stuck. Pick one and do something different with it.</div>
+      <div class="leech-list">
+        ${shown.map((x) => `
+          <button class="leech-item" data-k="${x.k}" data-facet="${x.facet}">
+            <span class="li-k jp">${x.k}</span>
+            <span class="li-body">
+              <span class="li-facet">${FACET_NAME[x.facet] || x.facet}</span>
+              <span class="li-stat">${x.lapses} lapse${x.lapses === 1 ? "" : "s"}${
+                x.attempts ? ` · ${Math.round(x.accuracy * 100)}% of ${x.attempts}` : ""}</span>
+            </span>
+          </button>`).join("")}
+      </div>
+      ${st.leech_total > shown.length
+        ? `<div class="chart-sub" style="margin-top:8px">…and ${st.leech_total - shown.length} more on
+           <a href="#/stats">Stats</a>.</div>` : ""}
+      ${st.parked ? `<div class="chart-sub" style="margin-top:8px">${st.parked} kanji parked —
+        they're left out of your queue and your mastery figures until you bring them back.</div>` : ""}
+    </div>`;
+}
 
 /**
  * Shown once, to someone whose counts just dropped because the definition of
@@ -732,6 +781,12 @@ function fluencyNotice(st) {
  * who has just reset their progress on purpose must not have it resurrected
  * behind their back.
  */
+function bindLeechItems(root) {
+  (root || document).querySelectorAll(".leech-item").forEach((b) => {
+    b.onclick = () => kanjiModal(b.dataset.k, b.dataset.facet);
+  });
+}
+
 function recoveryCard() {
   const r = S.recovery;
   if (!r) return "";
@@ -949,7 +1004,7 @@ async function batchDetail(cid, i) {
   bindListButtons($("#main"));
 }
 
-function kanjiModal(k) {
+function kanjiModal(k, focusFacet) {
   const r = S.byChar[k];
   const srsLine = (facet) => {
     const s = srsOf(k, facet);
@@ -979,11 +1034,55 @@ function kanjiModal(k) {
       ${srsOf(k, "sense2") ? `<dt>Meaning 2 card</dt><dd>${srsLine("sense2")}</dd>` : ""}
       ${srsOf(k, "sense3") ? `<dt>Meaning 3 card</dt><dd>${srsLine("sense3")}</dd>` : ""}
     </dl>
+    <div class="card-actions">
+      ${CORE_FACETS.map((f) => {
+        const row = srsOf(k, f);
+        if (!row) return "";
+        const parked = row.state === "parked";
+        return `<div class="ca-row ${focusFacet === f ? "focus" : ""}">
+          <span class="ca-label">${FACET_NAME[f]} card${parked ? " · parked" : ""}</span>
+          ${parked
+            ? `<button class="ghost-btn sm" data-act="unpark" data-f="${f}">Bring it back</button>`
+            : `<button class="ghost-btn sm" data-act="relearn" data-f="${f}">Start it over</button>
+               <button class="ghost-btn sm" data-act="park" data-f="${f}">Park it</button>`}
+        </div>`;
+      }).join("")}
+    </div>
+    <div class="note-box">
+      <label class="ca-label" for="kanji-note">Your note${
+        " "}<span class="chart-sub">— a mnemonic, a story, anything that makes it stick</span></label>
+      <textarea id="kanji-note" rows="2" maxlength="400"
+        placeholder="e.g. 待 is 彳 (going) + 寺 (temple) — waiting on the way to the temple">${
+        esc((S.settings.notes || {})[k] || "")}</textarea>
+      <div class="row"><button class="ghost-btn sm" id="note-save">Save note</button></div>
+    </div>
     <div class="row" style="margin:4px 0 12px">${listBtn(r.k)}${
       listsContaining(k).map((l) => `<span class="pill">in ${esc(l.name)}</span>`).join("")}</div>
     <a href="https://jisho.org/search/${encodeURIComponent(r.k)}%20%23kanji" target="_blank" rel="noopener" style="color:var(--accent)">Look up on jisho.org ↗</a>
   `);
   bindListButtons($("#modal-root"));
+  document.querySelectorAll("#modal-root [data-act]").forEach((b) => {
+    b.onclick = async () => {
+      const act = b.dataset.act;
+      if (act === "relearn" && !confirm(
+        `Start the ${FACET_NAME[b.dataset.f]} card for ${k} over?\n\n`
+        + "It goes back to being introduced from scratch. Your review history is kept.")) return;
+      await api("/api/card-action", { k, facet: b.dataset.f, action: act }).catch(() => {});
+      await loadState();
+      toast(act === "park" ? `${k} parked` : act === "unpark" ? `${k} back in rotation`
+                                                             : `${k} will be re-introduced`);
+      kanjiModal(k, focusFacet);
+    };
+  });
+  const noteEl = $("#kanji-note");
+  if (noteEl) $("#note-save").onclick = async () => {
+    const notes = { ...(S.settings.notes || {}) };
+    const v = noteEl.value.trim();
+    if (v) notes[k] = v; else delete notes[k];
+    S.settings.notes = notes;
+    await api("/api/settings", { notes }).catch(() => {});
+    toast(v ? "Note saved" : "Note cleared");
+  };
   // Spell out what is still missing before a card counts as operative, so the
   // bar is legible instead of mysterious.
   for (const facet of ["meaning", "reading"]) {
@@ -1555,6 +1654,7 @@ function introCard(sess, item) {
             <dt>Kun</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
             <dt>Rank</dt><dd>#${r.freq || "—"} most frequent</dd>
           </dl>
+          ${noteFor(r.k)}
           ${extra > 0 ? `<p class="later-note">${extra} further meaning${extra === 1 ? "" : "s"}
             (${esc(senses(r).slice(1, 4).join(", "))}${senses(r).length > 4 ? ", …" : ""})
             — you'll meet ${extra === 1 ? "it" : "them"} once this one sticks.</p>` : ""}
@@ -1717,6 +1817,12 @@ function readingLine(row) {
   return `<span class="jp">${sp.kana}</span> <span class="rk">${READING_KIND[sp.kind]}</span>`;
 }
 
+/** A note the learner wrote for this kanji, shown where it does some good. */
+function noteFor(k) {
+  const n = (S.settings.notes || {})[k];
+  return n ? `<div class="kanji-note">${esc(n)}</div>` : "";
+}
+
 /** Numbered senses; the ones past `upto` are shown dimmed as "coming later". */
 function senseLadder(row, upto) {
   if (!senses(row).length) return "—";
@@ -1787,6 +1893,7 @@ function finishAnswer(sess, item, q, correct, chosen, ms, note) {
     <div class="detail">read aloud ${readingLine(r)}${q.font
       ? ` · shown in <span class="jp">${q.font.jp}</span> <span class="rk">${esc(q.font.en)}</span>` : ""}</div>
     ${senseLadder(r, sensesTaught(r.k))}
+    ${noteFor(r.k)}
     <div class="fb-tools">${listBtn(r.k)}</div>
     <div id="fix-slot"></div>
     <button class="primary-btn" id="next-btn" style="margin-top:12px" disabled>Continue ↵</button>`;

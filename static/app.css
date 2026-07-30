@@ -698,3 +698,30 @@ h2 { font-size: 17px; margin: 26px 0 12px; }
 .nc-val.old { color: var(--muted); }
 .nc-note { display: block; font-size: 12px; color: var(--ink-2); line-height: 1.45; }
 .nc-arrow { color: var(--muted); font-size: 20px; }
+
+/* ============================================================ leeches & notes */
+.leech-card { border-color: var(--warn); }
+.leech-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.leech-item { display: flex; align-items: center; gap: 10px; text-align: left;
+              background: var(--surface-2); border: 1px solid var(--border);
+              border-radius: var(--radius); padding: 8px 12px; }
+.leech-item:hover { border-color: var(--warn); }
+.li-k { font-family: var(--jp); font-size: 26px; line-height: 1; }
+.li-body { display: flex; flex-direction: column; gap: 1px; }
+.li-facet { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.li-stat { font-size: 12.5px; color: var(--ink-2); }
+
+.card-actions { margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
+.ca-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+          padding: 6px 8px; border-radius: 8px; }
+.ca-row.focus { background: var(--surface-2); outline: 1px solid var(--warn); }
+.ca-label { font-size: 12px; text-transform: uppercase; letter-spacing: .6px;
+            color: var(--muted); flex: 1; min-width: 120px; }
+.note-box { margin: 10px 0 12px; }
+.note-box textarea { width: 100%; background: var(--surface-2); color: var(--ink);
+                     border: 1px solid var(--border); border-radius: 8px;
+                     padding: 8px 10px; font: inherit; font-size: 13.5px;
+                     resize: vertical; margin: 6px 0 8px; }
+.kanji-note { background: var(--surface-2); border-left: 3px solid var(--warn);
+              border-radius: 0 8px 8px 0; padding: 9px 13px; margin: 10px auto 2px;
+              max-width: 460px; font-size: 13.5px; color: var(--ink-2); text-align: left; }

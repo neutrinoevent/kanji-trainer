@@ -140,6 +140,9 @@ DEFAULT_SETTINGS = {
     # sense either way; turn this on to have only that sense count.
     "strict_primary": False,
     "goals": [],         # user-declared fluency goals
+    # per-kanji notes the learner writes for themselves, usually mnemonics for
+    # something that keeps slipping: {kanji: text}
+    "notes": {},
     # which set the Path walks; "all" is the original frequency-ordered path
     "path_scope": "all",
     # last review scope the user picked ("all", or "c/<collection>[/<from>-<to>]")
@@ -375,6 +378,27 @@ QUIZ_MODES = set().union(*FACET_MODES.values())
 # single intense session from certifying a kanji the learner will not recall
 # tomorrow. Everything else is pure evidence.
 TIER_OPERATIVE = {"modes": 2, "prod": 1, "hits": 4, "days": 2, "acc": 0.70}
+
+# ---------------------------------------------------------------- leeches
+#
+# A card the learner keeps failing used to just come back forever. `lapses` has
+# been recorded since v1 and read by nothing. Demonstration-based fluency made
+# that worse rather than better: such a card can never reach operative, so it
+# also permanently suppresses batch mastery, goal progress and coverage, with no
+# way to intervene and no explanation of why the number is stuck.
+LEECH_LAPSES = 4          # times it has fallen back out of review
+LEECH_ATTEMPTS = 8        # or: plenty of attempts...
+LEECH_ACCURACY = 0.5      # ...with worse than a coin-flip behind them
+
+
+def is_leech(row, demo):
+    if row["state"] == "parked":
+        return False
+    if row["lapses"] >= LEECH_LAPSES:
+        return True
+    d = demo or {}
+    n = d.get("n", 0)
+    return n >= LEECH_ATTEMPTS and (d.get("hits", 0) / n) < LEECH_ACCURACY
 TIER_SOLID = {"prod": 2, "hits": 8, "days": 4, "acc": 0.80}   # + every mode
 
 
@@ -627,7 +651,8 @@ def build_queue(settings, scope=None):
     due = [
         {"k": r["kanji"], "facet": r["facet"], "type": "review"}
         for r in conn.execute(
-            "SELECT kanji, facet FROM srs WHERE state!='new' AND due<=? ORDER BY due",
+            "SELECT kanji, facet FROM srs"
+            " WHERE state NOT IN ('new','parked') AND due<=? ORDER BY due",
             (now,),
         )
         if teachable(r["kanji"], r["facet"])   # skips any empty card from an older db
@@ -775,9 +800,15 @@ def get_stats(settings):
     # Batch mastery is about the two core cards only. Folding freshly unlocked
     # sense cards in would make a batch's mastery *drop* the moment the user got
     # good enough to earn a second meaning, which is exactly backwards.
+    # Parked cards are excluded from mastery entirely rather than counted as
+    # zero. Someone who has set a kanji aside is not failing at it, and a number
+    # that stays suppressed for a card you deliberately stopped working on is
+    # noise. The parked count is reported alongside, so the smaller denominator
+    # is visible rather than silently assumed.
+    parked_chars = {r["kanji"] for r in srs_rows if r["state"] == "parked"}
     per_kanji = {}
     for r in srs_rows:
-        if r["facet"] in CORE_FACETS:
+        if r["facet"] in CORE_FACETS and r["kanji"] not in parked_chars:
             per_kanji.setdefault(r["kanji"], []).append(
                 strength(r, demo.get((r["kanji"], r["facet"]))))
 
@@ -789,11 +820,14 @@ def get_stats(settings):
         for b in range((len(chars) + size - 1) // size):
             chunk = chars[b * size : (b + 1) * size]
             vals = [sum(per_kanji[c]) / len(per_kanji[c]) for c in chunk if c in per_kanji]
+            n_parked = sum(1 for c in chunk if c in parked_chars)
+            denom = max(1, len(chunk) - n_parked)
             batches.append({
                 "index": b,
                 "started": len(vals),
                 "size": len(chunk),
-                "mastery": round(sum(vals) / len(chunk), 3) if vals else 0.0,
+                "parked": n_parked,
+                "mastery": round(sum(vals) / denom, 3) if vals else 0.0,
             })
         collections[cid] = batches
 
@@ -839,6 +873,20 @@ def get_stats(settings):
                     if t.get("meaning", 0) >= 2 and t.get("reading", 0) >= 2}
     joyo_learned = len(fluent_chars & JOYO_CHARS)
 
+    leeches = []
+    for r in srs_rows:
+        if r["facet"] not in CORE_FACETS:
+            continue
+        d = demo.get((r["kanji"], r["facet"]))
+        if is_leech(r, d):
+            n = (d or {}).get("n", 0)
+            leeches.append({
+                "k": r["kanji"], "facet": r["facet"], "lapses": r["lapses"],
+                "attempts": n, "hits": (d or {}).get("hits", 0),
+                "accuracy": round((d or {}).get("hits", 0) / n, 2) if n else 0,
+            })
+    leeches.sort(key=lambda x: (-x["lapses"], x["accuracy"]))
+
     senses = {
         "unlocked": sum(1 for r in srs_rows if r["facet"] in SENSE_FACETS),
         "operative": sum(1 for r in srs_rows
@@ -850,6 +898,9 @@ def get_stats(settings):
     return {
         "rungs": rungs,
         "senses": senses,
+        "leeches": leeches[:30],
+        "leech_total": len(leeches),
+        "parked": len(parked_chars),
         "legacy_learned": legacy,
         "legacy_mature": legacy_mature,
         "days": days,
@@ -1482,6 +1533,27 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/exam":
             return self.send_json({"ok": True, "record": seal_exam(body)})
+
+        if path == "/api/card-action":
+            k, facet, action = body.get("k"), body.get("facet"), body.get("action")
+            conn = db()
+            if conn.execute("SELECT 1 FROM srs WHERE kanji=? AND facet=?",
+                            (k, facet)).fetchone() is None:
+                return self.send_json({"error": "no such card"}, 400)
+            if action == "park":
+                conn.execute("UPDATE srs SET state='parked' WHERE kanji=? AND facet=?", (k, facet))
+            elif action == "unpark":
+                conn.execute("UPDATE srs SET state='learning', step=0, interval=0,"
+                             " due=? WHERE kanji=? AND facet=?", (iso(now_utc()), k, facet))
+            elif action == "relearn":
+                # Start this one over. History is kept, lapses included: forgetting
+                # that it happened would lose the signal that flagged the card.
+                conn.execute("UPDATE srs SET state='new', step=0, interval=0, ease=2.5,"
+                             " due=NULL WHERE kanji=? AND facet=?", (k, facet))
+            else:
+                return self.send_json({"error": "unknown action"}, 400)
+            conn.commit()
+            return self.send_json({"ok": True})
 
         if path == "/api/backup":
             return self.send_json({"ok": True,
