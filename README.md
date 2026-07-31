@@ -85,9 +85,11 @@ everything else in the app.
   second-meaning card unlocks on its own and turns up as a review of a kanji you
   already know.
   Extra meanings have their own daily budget so depth never crowds out new
-  kanji, and typing a real-but-secondary meaning tells you exactly that instead
-  of just "wrong". Radical names and counter notes ("One Radical (no.1)") are
-  filtered out, so they never turn up as a "meaning" to learn.
+  kanji, and answering with a *different* sense tells you exactly that instead of
+  just "wrong". Which meanings are genuinely distinct is curated in
+  `data/senses.json` across the beginner range, so "big" and "large" both count
+  as 大 while "sun" is understood as a different sense of 日 — and radical names
+  and counter notes never turn up as a "meaning" to learn.
 - **Reading aloud, not reading recital.** Reading cards ask what you'd *say*
   looking at the bare character. Those readings are curated in
   `data/spoken.json` (editable — see below), labelled 音読み or 訓読み, and the
@@ -96,7 +98,8 @@ everything else in the app.
 - **Tracks and batches.** Study by frequency rank, JLPT level (N5 to N1),
   school grade (1 to 6 plus secondary), or jinmeiyō name kanji. Within every
   track, kanji are ordered most common first. Batch size is configurable.
-- **A guided path.** A step-by-step road through the most common kanji, five
+- **A guided path.** A step-by-step road through a set of your choosing — the
+  most common kanji, a school grade, a batch, or one of your own lists — five
   at a time: a learn step, a quiz step, a match round every third unit, and a
   checkpoint every fifth. Steps earn one to three stars and unlock in order.
   It feeds the same review schedule as the rest of the app, so you can mix
@@ -114,6 +117,12 @@ everything else in the app.
   *Solid* means every question type, repeatedly, across several days. A long
   gap since the last review proves nothing on its own, so it isn't used as the
   measure — and the app tells you exactly what a card still needs.
+- **Cards that fight you get named.** Some kanji just won't stick, and repeating
+  them harder doesn't help — they also can't count toward your totals until they
+  come good, which is part of why a batch can feel stuck. Those are listed on the
+  dashboard with three ways out: park it (out of your queue *and* out of the
+  figures, so it stops dragging them down), start it over from scratch, or write
+  yourself a mnemonic. Notes show up on the card itself and after every answer.
 - **Misses ask for the answer back.** Get one wrong and you're shown what the
   answer was and why, then asked to produce it before moving on. Answering with
   a real but secondary meaning is accepted and says so — but it doesn't count
@@ -148,7 +157,7 @@ everything else in the app.
   through ten Japanese-flavored ranks, from 見習い (Apprentice) to 漢字王
   (Kanji King), with a progress bar on the dashboard and daily goals that
   reset at midnight.
-- **Badges and charms.** Thirty badges on the Stats page, from 初陣 (First
+- **Badges and charms.** Thirty-three badges on the Stats page, from 初陣 (First
   Battle) to 常用制覇 (Jōyō Conquest), covering streaks, volume, coverage,
   path progress, night-owl reviews, and zombie hunting. Treasure chests along
   the path hold twelve collectible charms (招き猫, 鳥居, 折鶴, ...).
