@@ -15,7 +15,7 @@ A local kanji trainer. Python-standard-library server + vanilla JS + SQLite,
 double-click runnable on Windows, 3,122 kanji. Built for Alexander's brother
 ahead of a move to Japan and study at Waseda; useful to anyone learning kanji.
 
-`main` is pushed and clean. 35 commits. Roughly 1,600 lines of `server.py`,
+`main` is pushed and clean. 39 commits. Roughly 1,600 lines of `server.py`,
 4,570 of frontend across eight files in `static/js/`, 727 of CSS.
 
 Sibling project: `neutrinoevent/hiragana-trainer`, built from
@@ -42,6 +42,7 @@ alternatives, and what was deliberately left out.
 | V-013 | Data that survives the app: `userdata/`, snapshots, offsite copy | shipped |
 | V-014 | Numbers-moved notice, scoped Path, refreshed tour, leech handling | shipped |
 | V-015 | Curated senses; strictness follows the data; frontend split | shipped |
+| V-016 | Look-alike distractors, example vocabulary, exam readiness | shipped |
 | V-002/3/4 | Phone access, hosting, durable sync | **parked** — see `docs/PARKED-…` |
 
 ## 3. The load-bearing ideas
@@ -151,12 +152,13 @@ the repo root are Alexander's own files. Leave them untracked.
 
 Detail and reasoning in `docs/IDEAS.md`.
 
-1. **Visually-similar distractors** — the biggest gap between what the app tests
-   and what reading actually demands.
-2. **Example vocabulary per kanji** — makes the on/kun split concrete; unlocks
-   the compound-reading drill after it.
-3. **Extend the sense curation** past the beginner range — strictness tightens
-   automatically as it grows, no decision required.
-4. **Auto-lists** — a live "everything I missed this week" that maintains itself.
-5. **Exam readiness signal** — tell someone when a batch is worth examining
-   rather than waiting for them to think of it.
+1. **Compound-reading drill** — now unblocked: `data/vocab.json` is the dataset
+   it needed. Given 日本, is 日 read にち, じつ or ひ? Tests exactly what the
+   read-aloud cards deliberately simplify away.
+2. **Extend the four curated data files** — `senses`, `similar`, `vocab`,
+   `spoken`. Each improves the app just by growing, with no code change and no
+   decision. Good work to chip away at.
+3. **Auto-lists** — a live "everything I missed this week" that maintains itself.
+4. **Leech follow-through** — parking and notes exist; nothing yet checks whether
+   a parked card ever comes back or whether notes actually help.
+5. **Radical / component quiz mode.**
