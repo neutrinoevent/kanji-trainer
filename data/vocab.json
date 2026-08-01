@@ -1,7 +1,7 @@
 {
  "_about": "A few real words for each kanji, chosen to show the same character taking different readings. Seeing 日本 (に) beside 三日 (か) beside 日 (ひ) is what makes the on/kun split concrete -- far more than being told that it exists.",
  "_why": "The reading cards deliberately teach one standalone reading, which is right for a beginner but leaves them unable to explain why 日 is ひ alone and something else in every compound. These examples fill that gap without adding another thing to memorise: they are shown, never tested.",
- "_format": "vocab[kanji] = [{w: word, r: reading in kana, m: English, kind: how THIS kanji is read in this word}]. kind is on, kun, or irregular -- the last for words like 今日 きょう and 大人 おとな, where no per-character reading applies.",
+ "_format": "vocab[kanji] = [{w: word, r: reading in kana, m: English, kind: how THIS kanji is read in this word}]. kind is on, kun, or irregular -- the last for words like 今日 きょう and 大人 おとな, where no per-character reading applies. kr is the slice of that word's reading belonging to THIS kanji (日 in 三日 is か), which is what the compound-reading drill asks about; it is null where no clean slice exists.",
  "_scope": "Curated for the beginner range rather than generated from a dictionary: a handful of well-chosen words teaches the on/kun contrast, where dozens of entries would bury it. Add your own in userdata/vocab.local.json, same shape.",
  "vocab": {
   "日": [
@@ -9,25 +9,29 @@
     "w": "日本",
     "r": "にほん",
     "m": "Japan",
-    "kind": "on"
+    "kind": "on",
+    "kr": "に"
    },
    {
     "w": "毎日",
     "r": "まいにち",
     "m": "every day",
-    "kind": "on"
+    "kind": "on",
+    "kr": "にち"
    },
    {
     "w": "三日",
     "r": "みっか",
     "m": "3rd / three days",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "か"
    },
    {
     "w": "日",
     "r": "ひ",
     "m": "day, sun",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ひ"
    }
   ],
   "一": [
@@ -35,19 +39,22 @@
     "w": "一つ",
     "r": "ひとつ",
     "m": "one thing",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ひと"
    },
    {
     "w": "一月",
     "r": "いちがつ",
     "m": "January",
-    "kind": "on"
+    "kind": "on",
+    "kr": "いち"
    },
    {
     "w": "一人",
     "r": "ひとり",
     "m": "one person",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ひと"
    }
   ],
   "人": [
@@ -55,19 +62,22 @@
     "w": "人",
     "r": "ひと",
     "m": "person",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ひと"
    },
    {
     "w": "日本人",
     "r": "にほんじん",
     "m": "Japanese person",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じん"
    },
    {
     "w": "三人",
     "r": "さんにん",
     "m": "three people",
-    "kind": "on"
+    "kind": "on",
+    "kr": "にん"
    }
   ],
   "年": [
@@ -75,19 +85,22 @@
     "w": "今年",
     "r": "ことし",
     "m": "this year",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "とし"
    },
    {
     "w": "一年",
     "r": "いちねん",
     "m": "one year",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ねん"
    },
    {
     "w": "年",
     "r": "とし",
     "m": "year, age",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "とし"
    }
   ],
   "大": [
@@ -95,19 +108,22 @@
     "w": "大きい",
     "r": "おおきい",
     "m": "big",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "おお"
    },
    {
     "w": "大学",
     "r": "だいがく",
     "m": "university",
-    "kind": "on"
+    "kind": "on",
+    "kr": "だい"
    },
    {
     "w": "大人",
     "r": "おとな",
     "m": "adult",
-    "kind": "irregular"
+    "kind": "irregular",
+    "kr": null
    }
   ],
   "十": [
@@ -115,13 +131,15 @@
     "w": "十",
     "r": "じゅう",
     "m": "ten",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じゅう"
    },
    {
     "w": "十日",
     "r": "とおか",
     "m": "10th / ten days",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "とお"
    }
   ],
   "二": [
@@ -129,13 +147,15 @@
     "w": "二つ",
     "r": "ふたつ",
     "m": "two things",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ふた"
    },
    {
     "w": "二月",
     "r": "にがつ",
     "m": "February",
-    "kind": "on"
+    "kind": "on",
+    "kr": "に"
    }
   ],
   "本": [
@@ -143,19 +163,22 @@
     "w": "本",
     "r": "ほん",
     "m": "book",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ほん"
    },
    {
     "w": "日本",
     "r": "にほん",
     "m": "Japan",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ほん"
    },
    {
     "w": "本当",
     "r": "ほんとう",
     "m": "true, really",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ほん"
    }
   ],
   "中": [
@@ -163,19 +186,22 @@
     "w": "中",
     "r": "なか",
     "m": "inside",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "なか"
    },
    {
     "w": "中学校",
     "r": "ちゅうがっこう",
     "m": "middle school",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ちゅう"
    },
    {
     "w": "世界中",
     "r": "せかいじゅう",
     "m": "all over the world",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じゅう"
    }
   ],
   "出": [
@@ -183,19 +209,22 @@
     "w": "出る",
     "r": "でる",
     "m": "to go out",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "で"
    },
    {
     "w": "出口",
     "r": "でぐち",
     "m": "exit",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "で"
    },
    {
     "w": "出発",
     "r": "しゅっぱつ",
     "m": "departure",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しゅっ"
    }
   ],
   "三": [
@@ -203,13 +232,15 @@
     "w": "三つ",
     "r": "みっつ",
     "m": "three things",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "みっ"
    },
    {
     "w": "三月",
     "r": "さんがつ",
     "m": "March",
-    "kind": "on"
+    "kind": "on",
+    "kr": "さん"
    }
   ],
   "見": [
@@ -217,13 +248,15 @@
     "w": "見る",
     "r": "みる",
     "m": "to see",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "み"
    },
    {
     "w": "意見",
     "r": "いけん",
     "m": "opinion",
-    "kind": "on"
+    "kind": "on",
+    "kr": "けん"
    }
   ],
   "月": [
@@ -231,19 +264,22 @@
     "w": "月",
     "r": "つき",
     "m": "moon",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "つき"
    },
    {
     "w": "一月",
     "r": "いちがつ",
     "m": "January",
-    "kind": "on"
+    "kind": "on",
+    "kr": "がつ"
    },
    {
     "w": "月曜日",
     "r": "げつようび",
     "m": "Monday",
-    "kind": "on"
+    "kind": "on",
+    "kr": "げつ"
    }
   ],
   "生": [
@@ -251,25 +287,29 @@
     "w": "生きる",
     "r": "いきる",
     "m": "to live",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "い"
    },
    {
     "w": "学生",
     "r": "がくせい",
     "m": "student",
-    "kind": "on"
+    "kind": "on",
+    "kr": "せい"
    },
    {
     "w": "先生",
     "r": "せんせい",
     "m": "teacher",
-    "kind": "on"
+    "kind": "on",
+    "kr": "せい"
    },
    {
     "w": "生まれる",
     "r": "うまれる",
     "m": "to be born",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "うまれ"
    }
   ],
   "五": [
@@ -277,13 +317,15 @@
     "w": "五つ",
     "r": "いつつ",
     "m": "five things",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "いつ"
    },
    {
     "w": "五月",
     "r": "ごがつ",
     "m": "May",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ご"
    }
   ],
   "上": [
@@ -291,13 +333,15 @@
     "w": "上",
     "r": "うえ",
     "m": "above",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "うえ"
    },
    {
     "w": "上手",
     "r": "じょうず",
     "m": "skilful",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じょう"
    }
   ],
   "四": [
@@ -305,13 +349,15 @@
     "w": "四つ",
     "r": "よっつ",
     "m": "four things",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "よっ"
    },
    {
     "w": "四月",
     "r": "しがつ",
     "m": "April",
-    "kind": "on"
+    "kind": "on",
+    "kr": "し"
    }
   ],
   "金": [
@@ -319,13 +365,15 @@
     "w": "お金",
     "r": "おかね",
     "m": "money",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "かね"
    },
    {
     "w": "金曜日",
     "r": "きんようび",
     "m": "Friday",
-    "kind": "on"
+    "kind": "on",
+    "kr": "きん"
    }
   ],
   "九": [
@@ -333,13 +381,15 @@
     "w": "九つ",
     "r": "ここのつ",
     "m": "nine things",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ここの"
    },
    {
     "w": "九月",
     "r": "くがつ",
     "m": "September",
-    "kind": "on"
+    "kind": "on",
+    "kr": "く"
    }
   ],
   "入": [
@@ -347,19 +397,22 @@
     "w": "入る",
     "r": "はいる",
     "m": "to enter",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "はい"
    },
    {
     "w": "入口",
     "r": "いりぐち",
     "m": "entrance",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "い"
    },
    {
     "w": "入学",
     "r": "にゅうがく",
     "m": "entering school",
-    "kind": "on"
+    "kind": "on",
+    "kr": "にゅう"
    }
   ],
   "立": [
@@ -367,13 +420,15 @@
     "w": "立つ",
     "r": "たつ",
     "m": "to stand",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "た"
    },
    {
     "w": "国立",
     "r": "こくりつ",
     "m": "national",
-    "kind": "on"
+    "kind": "on",
+    "kr": "りつ"
    }
   ],
   "手": [
@@ -381,19 +436,22 @@
     "w": "手",
     "r": "て",
     "m": "hand",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "て"
    },
    {
     "w": "上手",
     "r": "じょうず",
     "m": "skilful",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ず"
    },
    {
     "w": "手紙",
     "r": "てがみ",
     "m": "letter",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "て"
    }
   ],
   "力": [
@@ -401,13 +459,15 @@
     "w": "力",
     "r": "ちから",
     "m": "strength",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ちから"
    },
    {
     "w": "電力",
     "r": "でんりょく",
     "m": "electric power",
-    "kind": "on"
+    "kind": "on",
+    "kr": "りょく"
    }
   ],
   "学": [
@@ -415,19 +475,22 @@
     "w": "学ぶ",
     "r": "まなぶ",
     "m": "to learn",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "まな"
    },
    {
     "w": "学校",
     "r": "がっこう",
     "m": "school",
-    "kind": "on"
+    "kind": "on",
+    "kr": "がっ"
    },
    {
     "w": "大学",
     "r": "だいがく",
     "m": "university",
-    "kind": "on"
+    "kind": "on",
+    "kr": "がく"
    }
   ],
   "円": [
@@ -435,13 +498,15 @@
     "w": "円",
     "r": "えん",
     "m": "yen",
-    "kind": "on"
+    "kind": "on",
+    "kr": "えん"
    },
    {
     "w": "百円",
     "r": "ひゃくえん",
     "m": "100 yen",
-    "kind": "on"
+    "kind": "on",
+    "kr": "えん"
    }
   ],
   "子": [
@@ -449,13 +514,15 @@
     "w": "子ども",
     "r": "こども",
     "m": "child",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "こ"
    },
    {
     "w": "女子",
     "r": "じょし",
     "m": "girl",
-    "kind": "on"
+    "kind": "on",
+    "kr": "し"
    }
   ],
   "目": [
@@ -463,19 +530,22 @@
     "w": "目",
     "r": "め",
     "m": "eye",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "め"
    },
    {
     "w": "目的",
     "r": "もくてき",
     "m": "purpose",
-    "kind": "on"
+    "kind": "on",
+    "kr": "もく"
    },
    {
     "w": "一目",
     "r": "ひとめ",
     "m": "a glance",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "め"
    }
   ],
   "田": [
@@ -483,13 +553,15 @@
     "w": "田んぼ",
     "r": "たんぼ",
     "m": "rice field",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "た"
    },
    {
     "w": "田中",
     "r": "たなか",
     "m": "Tanaka (name)",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "た"
    }
   ],
   "八": [
@@ -497,13 +569,15 @@
     "w": "八つ",
     "r": "やっつ",
     "m": "eight things",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "やっ"
    },
    {
     "w": "八月",
     "r": "はちがつ",
     "m": "August",
-    "kind": "on"
+    "kind": "on",
+    "kr": "はち"
    }
   ],
   "六": [
@@ -511,13 +585,15 @@
     "w": "六つ",
     "r": "むっつ",
     "m": "six things",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "むっ"
    },
    {
     "w": "六月",
     "r": "ろくがつ",
     "m": "June",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ろく"
    }
   ],
   "下": [
@@ -525,19 +601,22 @@
     "w": "下",
     "r": "した",
     "m": "below",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "した"
    },
    {
     "w": "地下",
     "r": "ちか",
     "m": "underground",
-    "kind": "on"
+    "kind": "on",
+    "kr": "か"
    },
    {
     "w": "下さい",
     "r": "ください",
     "m": "please give",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "くだ"
    }
   ],
   "気": [
@@ -545,19 +624,22 @@
     "w": "元気",
     "r": "げんき",
     "m": "healthy, lively",
-    "kind": "on"
+    "kind": "on",
+    "kr": "き"
    },
    {
     "w": "天気",
     "r": "てんき",
     "m": "weather",
-    "kind": "on"
+    "kind": "on",
+    "kr": "き"
    },
    {
     "w": "気持ち",
     "r": "きもち",
     "m": "feeling",
-    "kind": "on"
+    "kind": "on",
+    "kr": "き"
    }
   ],
   "小": [
@@ -565,13 +647,15 @@
     "w": "小さい",
     "r": "ちいさい",
     "m": "small",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ちい"
    },
    {
     "w": "小学校",
     "r": "しょうがっこう",
     "m": "primary school",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しょう"
    }
   ],
   "七": [
@@ -579,13 +663,15 @@
     "w": "七つ",
     "r": "ななつ",
     "m": "seven things",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "なな"
    },
    {
     "w": "七月",
     "r": "しちがつ",
     "m": "July",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しち"
    }
   ],
   "山": [
@@ -593,13 +679,15 @@
     "w": "山",
     "r": "やま",
     "m": "mountain",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "やま"
    },
    {
     "w": "富士山",
     "r": "ふじさん",
     "m": "Mt Fuji",
-    "kind": "on"
+    "kind": "on",
+    "kr": "さん"
    }
   ],
   "川": [
@@ -607,13 +695,15 @@
     "w": "川",
     "r": "かわ",
     "m": "river",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "かわ"
    },
    {
     "w": "川口",
     "r": "かわぐち",
     "m": "river mouth",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "かわ"
    }
   ],
   "水": [
@@ -621,13 +711,15 @@
     "w": "水",
     "r": "みず",
     "m": "water",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "みず"
    },
    {
     "w": "水曜日",
     "r": "すいようび",
     "m": "Wednesday",
-    "kind": "on"
+    "kind": "on",
+    "kr": "すい"
    }
   ],
   "火": [
@@ -635,13 +727,15 @@
     "w": "火",
     "r": "ひ",
     "m": "fire",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ひ"
    },
    {
     "w": "火曜日",
     "r": "かようび",
     "m": "Tuesday",
-    "kind": "on"
+    "kind": "on",
+    "kr": "か"
    }
   ],
   "木": [
@@ -649,13 +743,15 @@
     "w": "木",
     "r": "き",
     "m": "tree",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "き"
    },
    {
     "w": "木曜日",
     "r": "もくようび",
     "m": "Thursday",
-    "kind": "on"
+    "kind": "on",
+    "kr": "もく"
    }
   ],
   "土": [
@@ -663,13 +759,15 @@
     "w": "土",
     "r": "つち",
     "m": "soil",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "つち"
    },
    {
     "w": "土曜日",
     "r": "どようび",
     "m": "Saturday",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ど"
    }
   ],
   "口": [
@@ -677,19 +775,22 @@
     "w": "口",
     "r": "くち",
     "m": "mouth",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "くち"
    },
    {
     "w": "人口",
     "r": "じんこう",
     "m": "population",
-    "kind": "on"
+    "kind": "on",
+    "kr": "こう"
    },
    {
     "w": "出口",
     "r": "でぐち",
     "m": "exit",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ぐち"
    }
   ],
   "車": [
@@ -697,19 +798,22 @@
     "w": "車",
     "r": "くるま",
     "m": "car",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "くるま"
    },
    {
     "w": "電車",
     "r": "でんしゃ",
     "m": "train",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しゃ"
    },
    {
     "w": "自転車",
     "r": "じてんしゃ",
     "m": "bicycle",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しゃ"
    }
   ],
   "校": [
@@ -717,13 +821,15 @@
     "w": "学校",
     "r": "がっこう",
     "m": "school",
-    "kind": "on"
+    "kind": "on",
+    "kr": "こう"
    },
    {
     "w": "高校",
     "r": "こうこう",
     "m": "high school",
-    "kind": "on"
+    "kind": "on",
+    "kr": "こう"
    }
   ],
   "先": [
@@ -731,13 +837,15 @@
     "w": "先生",
     "r": "せんせい",
     "m": "teacher",
-    "kind": "on"
+    "kind": "on",
+    "kr": "せん"
    },
    {
     "w": "先",
     "r": "さき",
     "m": "ahead",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "さき"
    }
   ],
   "名": [
@@ -745,13 +853,15 @@
     "w": "名前",
     "r": "なまえ",
     "m": "name",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "な"
    },
    {
     "w": "有名",
     "r": "ゆうめい",
     "m": "famous",
-    "kind": "on"
+    "kind": "on",
+    "kr": "めい"
    }
   ],
   "女": [
@@ -759,13 +869,15 @@
     "w": "女",
     "r": "おんな",
     "m": "woman",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "おんな"
    },
    {
     "w": "女子",
     "r": "じょし",
     "m": "girl",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じょ"
    }
   ],
   "男": [
@@ -773,13 +885,15 @@
     "w": "男",
     "r": "おとこ",
     "m": "man",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "おとこ"
    },
    {
     "w": "男子",
     "r": "だんし",
     "m": "boy",
-    "kind": "on"
+    "kind": "on",
+    "kr": "だん"
    }
   ],
   "天": [
@@ -787,13 +901,15 @@
     "w": "天気",
     "r": "てんき",
     "m": "weather",
-    "kind": "on"
+    "kind": "on",
+    "kr": "てん"
    },
    {
     "w": "天ぷら",
     "r": "てんぷら",
     "m": "tempura",
-    "kind": "on"
+    "kind": "on",
+    "kr": "てん"
    }
   ],
   "空": [
@@ -801,19 +917,22 @@
     "w": "空",
     "r": "そら",
     "m": "sky",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "そら"
    },
    {
     "w": "空気",
     "r": "くうき",
     "m": "air",
-    "kind": "on"
+    "kind": "on",
+    "kr": "くう"
    },
    {
     "w": "空く",
     "r": "あく",
     "m": "to become empty",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あ"
    }
   ],
   "花": [
@@ -821,13 +940,15 @@
     "w": "花",
     "r": "はな",
     "m": "flower",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "はな"
    },
    {
     "w": "花火",
     "r": "はなび",
     "m": "fireworks",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "はな"
    }
   ],
   "字": [
@@ -835,19 +956,22 @@
     "w": "字",
     "r": "じ",
     "m": "character",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じ"
    },
    {
     "w": "漢字",
     "r": "かんじ",
     "m": "kanji",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じ"
    },
    {
     "w": "名字",
     "r": "みょうじ",
     "m": "surname",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じ"
    }
   ],
   "文": [
@@ -855,13 +979,15 @@
     "w": "文",
     "r": "ぶん",
     "m": "sentence",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ぶん"
    },
    {
     "w": "文化",
     "r": "ぶんか",
     "m": "culture",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ぶん"
    }
   ],
   "白": [
@@ -869,13 +995,15 @@
     "w": "白い",
     "r": "しろい",
     "m": "white",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "しろ"
    },
    {
     "w": "白紙",
     "r": "はくし",
     "m": "blank paper",
-    "kind": "on"
+    "kind": "on",
+    "kr": "はく"
    }
   ],
   "赤": [
@@ -883,13 +1011,15 @@
     "w": "赤い",
     "r": "あかい",
     "m": "red",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あか"
    },
    {
     "w": "赤ちゃん",
     "r": "あかちゃん",
     "m": "baby",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あか"
    }
   ],
   "青": [
@@ -897,13 +1027,15 @@
     "w": "青い",
     "r": "あおい",
     "m": "blue",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あお"
    },
    {
     "w": "青年",
     "r": "せいねん",
     "m": "youth",
-    "kind": "on"
+    "kind": "on",
+    "kr": "せい"
    }
   ],
   "早": [
@@ -911,13 +1043,15 @@
     "w": "早い",
     "r": "はやい",
     "m": "early",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "はや"
    },
    {
     "w": "早々",
     "r": "そうそう",
     "m": "promptly",
-    "kind": "on"
+    "kind": "on",
+    "kr": "そう"
    }
   ],
   "休": [
@@ -925,13 +1059,15 @@
     "w": "休む",
     "r": "やすむ",
     "m": "to rest",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "やす"
    },
    {
     "w": "休日",
     "r": "きゅうじつ",
     "m": "holiday",
-    "kind": "on"
+    "kind": "on",
+    "kr": "きゅう"
    }
   ],
   "石": [
@@ -939,13 +1075,15 @@
     "w": "石",
     "r": "いし",
     "m": "stone",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "いし"
    },
    {
     "w": "石油",
     "r": "せきゆ",
     "m": "petroleum",
-    "kind": "on"
+    "kind": "on",
+    "kr": "せき"
    }
   ],
   "足": [
@@ -953,19 +1091,22 @@
     "w": "足",
     "r": "あし",
     "m": "foot, leg",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あし"
    },
    {
     "w": "足りる",
     "r": "たりる",
     "m": "to suffice",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "た"
    },
    {
     "w": "不足",
     "r": "ふそく",
     "m": "shortage",
-    "kind": "on"
+    "kind": "on",
+    "kr": "そく"
    }
   ],
   "耳": [
@@ -973,7 +1114,8 @@
     "w": "耳",
     "r": "みみ",
     "m": "ear",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "みみ"
    }
   ],
   "犬": [
@@ -981,7 +1123,8 @@
     "w": "犬",
     "r": "いぬ",
     "m": "dog",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "いぬ"
    }
   ],
   "虫": [
@@ -989,7 +1132,8 @@
     "w": "虫",
     "r": "むし",
     "m": "insect",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "むし"
    }
   ],
   "林": [
@@ -997,13 +1141,15 @@
     "w": "林",
     "r": "はやし",
     "m": "woods",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "はやし"
    },
    {
     "w": "森林",
     "r": "しんりん",
     "m": "forest",
-    "kind": "on"
+    "kind": "on",
+    "kr": "りん"
    }
   ],
   "森": [
@@ -1011,13 +1157,15 @@
     "w": "森",
     "r": "もり",
     "m": "forest",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "もり"
    },
    {
     "w": "森林",
     "r": "しんりん",
     "m": "forest",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しん"
    }
   ],
   "草": [
@@ -1025,13 +1173,15 @@
     "w": "草",
     "r": "くさ",
     "m": "grass",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "くさ"
    },
    {
     "w": "草原",
     "r": "そうげん",
     "m": "grassland",
-    "kind": "on"
+    "kind": "on",
+    "kr": "そう"
    }
   ],
   "竹": [
@@ -1039,7 +1189,8 @@
     "w": "竹",
     "r": "たけ",
     "m": "bamboo",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "たけ"
    }
   ],
   "糸": [
@@ -1047,7 +1198,8 @@
     "w": "糸",
     "r": "いと",
     "m": "thread",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "いと"
    }
   ],
   "貝": [
@@ -1055,7 +1207,8 @@
     "w": "貝",
     "r": "かい",
     "m": "shellfish",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "かい"
    }
   ],
   "玉": [
@@ -1063,13 +1216,15 @@
     "w": "玉",
     "r": "たま",
     "m": "ball, jewel",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "たま"
    },
    {
     "w": "目玉",
     "r": "めだま",
     "m": "eyeball",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "だま"
    }
   ],
   "王": [
@@ -1077,13 +1232,15 @@
     "w": "王",
     "r": "おう",
     "m": "king",
-    "kind": "on"
+    "kind": "on",
+    "kr": "おう"
    },
    {
     "w": "王子",
     "r": "おうじ",
     "m": "prince",
-    "kind": "on"
+    "kind": "on",
+    "kr": "おう"
    }
   ],
   "雨": [
@@ -1091,13 +1248,15 @@
     "w": "雨",
     "r": "あめ",
     "m": "rain",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あめ"
    },
    {
     "w": "大雨",
     "r": "おおあめ",
     "m": "heavy rain",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あめ"
    }
   ],
   "夕": [
@@ -1105,13 +1264,15 @@
     "w": "夕方",
     "r": "ゆうがた",
     "m": "evening",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ゆう"
    },
    {
     "w": "夕日",
     "r": "ゆうひ",
     "m": "setting sun",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ゆう"
    }
   ],
   "右": [
@@ -1119,13 +1280,15 @@
     "w": "右",
     "r": "みぎ",
     "m": "right",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "みぎ"
    },
    {
     "w": "左右",
     "r": "さゆう",
     "m": "left and right",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ゆう"
    }
   ],
   "左": [
@@ -1133,13 +1296,15 @@
     "w": "左",
     "r": "ひだり",
     "m": "left",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ひだり"
    },
    {
     "w": "左右",
     "r": "さゆう",
     "m": "left and right",
-    "kind": "on"
+    "kind": "on",
+    "kr": "さ"
    }
   ],
   "町": [
@@ -1147,13 +1312,15 @@
     "w": "町",
     "r": "まち",
     "m": "town",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "まち"
    },
    {
     "w": "町長",
     "r": "ちょうちょう",
     "m": "town mayor",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ちょう"
    }
   ],
   "村": [
@@ -1161,13 +1328,15 @@
     "w": "村",
     "r": "むら",
     "m": "village",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "むら"
    },
    {
     "w": "村長",
     "r": "そんちょう",
     "m": "village head",
-    "kind": "on"
+    "kind": "on",
+    "kr": "そん"
    }
   ],
   "音": [
@@ -1175,13 +1344,15 @@
     "w": "音",
     "r": "おと",
     "m": "sound",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "おと"
    },
    {
     "w": "音楽",
     "r": "おんがく",
     "m": "music",
-    "kind": "on"
+    "kind": "on",
+    "kr": "おん"
    }
   ],
   "国": [
@@ -1189,19 +1360,22 @@
     "w": "国",
     "r": "くに",
     "m": "country",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "くに"
    },
    {
     "w": "外国",
     "r": "がいこく",
     "m": "foreign country",
-    "kind": "on"
+    "kind": "on",
+    "kr": "こく"
    },
    {
     "w": "中国",
     "r": "ちゅうごく",
     "m": "China",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ごく"
    }
   ],
   "会": [
@@ -1209,19 +1383,22 @@
     "w": "会う",
     "r": "あう",
     "m": "to meet",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あ"
    },
    {
     "w": "会社",
     "r": "かいしゃ",
     "m": "company",
-    "kind": "on"
+    "kind": "on",
+    "kr": "かい"
    },
    {
     "w": "社会",
     "r": "しゃかい",
     "m": "society",
-    "kind": "on"
+    "kind": "on",
+    "kr": "かい"
    }
   ],
   "時": [
@@ -1229,19 +1406,22 @@
     "w": "時",
     "r": "とき",
     "m": "time",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "とき"
    },
    {
     "w": "時間",
     "r": "じかん",
     "m": "time, hour",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じ"
    },
    {
     "w": "一時",
     "r": "いちじ",
     "m": "one o'clock",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じ"
    }
   ],
   "間": [
@@ -1249,19 +1429,22 @@
     "w": "間",
     "r": "あいだ",
     "m": "interval",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あいだ"
    },
    {
     "w": "時間",
     "r": "じかん",
     "m": "time",
-    "kind": "on"
+    "kind": "on",
+    "kr": "かん"
    },
    {
     "w": "人間",
     "r": "にんげん",
     "m": "human being",
-    "kind": "on"
+    "kind": "on",
+    "kr": "げん"
    }
   ],
   "長": [
@@ -1269,13 +1452,15 @@
     "w": "長い",
     "r": "ながい",
     "m": "long",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "なが"
    },
    {
     "w": "社長",
     "r": "しゃちょう",
     "m": "company president",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ちょう"
    }
   ],
   "行": [
@@ -1283,19 +1468,22 @@
     "w": "行く",
     "r": "いく",
     "m": "to go",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "い"
    },
    {
     "w": "銀行",
     "r": "ぎんこう",
     "m": "bank",
-    "kind": "on"
+    "kind": "on",
+    "kr": "こう"
    },
    {
     "w": "旅行",
     "r": "りょこう",
     "m": "travel",
-    "kind": "on"
+    "kind": "on",
+    "kr": "こう"
    }
   ],
   "高": [
@@ -1303,13 +1491,15 @@
     "w": "高い",
     "r": "たかい",
     "m": "tall, expensive",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "たか"
    },
    {
     "w": "高校",
     "r": "こうこう",
     "m": "high school",
-    "kind": "on"
+    "kind": "on",
+    "kr": "こう"
    }
   ],
   "安": [
@@ -1317,13 +1507,15 @@
     "w": "安い",
     "r": "やすい",
     "m": "cheap",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "やす"
    },
    {
     "w": "安全",
     "r": "あんぜん",
     "m": "safety",
-    "kind": "on"
+    "kind": "on",
+    "kr": "あん"
    }
   ],
   "新": [
@@ -1331,13 +1523,15 @@
     "w": "新しい",
     "r": "あたらしい",
     "m": "new",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あたら"
    },
    {
     "w": "新聞",
     "r": "しんぶん",
     "m": "newspaper",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しん"
    }
   ],
   "食": [
@@ -1345,13 +1539,15 @@
     "w": "食べる",
     "r": "たべる",
     "m": "to eat",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "た"
    },
    {
     "w": "食事",
     "r": "しょくじ",
     "m": "a meal",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しょく"
    }
   ],
   "飲": [
@@ -1359,13 +1555,15 @@
     "w": "飲む",
     "r": "のむ",
     "m": "to drink",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "の"
    },
    {
     "w": "飲食",
     "r": "いんしょく",
     "m": "food and drink",
-    "kind": "on"
+    "kind": "on",
+    "kr": "いん"
    }
   ],
   "社": [
@@ -1373,13 +1571,15 @@
     "w": "会社",
     "r": "かいしゃ",
     "m": "company",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しゃ"
    },
    {
     "w": "神社",
     "r": "じんじゃ",
     "m": "shrine",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じゃ"
    }
   ],
   "話": [
@@ -1387,19 +1587,22 @@
     "w": "話す",
     "r": "はなす",
     "m": "to speak",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "はな"
    },
    {
     "w": "電話",
     "r": "でんわ",
     "m": "telephone",
-    "kind": "on"
+    "kind": "on",
+    "kr": "わ"
    },
    {
     "w": "会話",
     "r": "かいわ",
     "m": "conversation",
-    "kind": "on"
+    "kind": "on",
+    "kr": "わ"
    }
   ],
   "聞": [
@@ -1407,13 +1610,15 @@
     "w": "聞く",
     "r": "きく",
     "m": "to hear, ask",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "き"
    },
    {
     "w": "新聞",
     "r": "しんぶん",
     "m": "newspaper",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ぶん"
    }
   ],
   "読": [
@@ -1421,13 +1626,15 @@
     "w": "読む",
     "r": "よむ",
     "m": "to read",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "よ"
    },
    {
     "w": "読書",
     "r": "どくしょ",
     "m": "reading books",
-    "kind": "on"
+    "kind": "on",
+    "kr": "どく"
    }
   ],
   "書": [
@@ -1435,13 +1642,15 @@
     "w": "書く",
     "r": "かく",
     "m": "to write",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "か"
    },
    {
     "w": "辞書",
     "r": "じしょ",
     "m": "dictionary",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しょ"
    }
   ],
   "語": [
@@ -1449,13 +1658,15 @@
     "w": "日本語",
     "r": "にほんご",
     "m": "Japanese language",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ご"
    },
    {
     "w": "語る",
     "r": "かたる",
     "m": "to tell",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "かた"
    }
   ],
   "待": [
@@ -1463,13 +1674,15 @@
     "w": "待つ",
     "r": "まつ",
     "m": "to wait",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ま"
    },
    {
     "w": "期待",
     "r": "きたい",
     "m": "expectation",
-    "kind": "on"
+    "kind": "on",
+    "kr": "たい"
    }
   ],
   "持": [
@@ -1477,13 +1690,15 @@
     "w": "持つ",
     "r": "もつ",
     "m": "to hold",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "も"
    },
    {
     "w": "気持ち",
     "r": "きもち",
     "m": "feeling",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "も"
    }
   ],
   "教": [
@@ -1491,13 +1706,15 @@
     "w": "教える",
     "r": "おしえる",
     "m": "to teach",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "おし"
    },
    {
     "w": "教室",
     "r": "きょうしつ",
     "m": "classroom",
-    "kind": "on"
+    "kind": "on",
+    "kr": "きょう"
    }
   ],
   "駅": [
@@ -1505,13 +1722,15 @@
     "w": "駅",
     "r": "えき",
     "m": "station",
-    "kind": "on"
+    "kind": "on",
+    "kr": "えき"
    },
    {
     "w": "駅前",
     "r": "えきまえ",
     "m": "in front of the station",
-    "kind": "on"
+    "kind": "on",
+    "kr": "えき"
    }
   ],
   "電": [
@@ -1519,13 +1738,15 @@
     "w": "電車",
     "r": "でんしゃ",
     "m": "train",
-    "kind": "on"
+    "kind": "on",
+    "kr": "でん"
    },
    {
     "w": "電気",
     "r": "でんき",
     "m": "electricity",
-    "kind": "on"
+    "kind": "on",
+    "kr": "でん"
    }
   ],
   "買": [
@@ -1533,13 +1754,15 @@
     "w": "買う",
     "r": "かう",
     "m": "to buy",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "か"
    },
    {
     "w": "売買",
     "r": "ばいばい",
     "m": "trade",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ばい"
    }
   ],
   "店": [
@@ -1547,13 +1770,15 @@
     "w": "店",
     "r": "みせ",
     "m": "shop",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "みせ"
    },
    {
     "w": "書店",
     "r": "しょてん",
     "m": "bookshop",
-    "kind": "on"
+    "kind": "on",
+    "kr": "てん"
    }
   ],
   "友": [
@@ -1561,13 +1786,15 @@
     "w": "友だち",
     "r": "ともだち",
     "m": "friend",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "とも"
    },
    {
     "w": "友人",
     "r": "ゆうじん",
     "m": "friend",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ゆう"
    }
   ],
   "父": [
@@ -1575,13 +1802,15 @@
     "w": "父",
     "r": "ちち",
     "m": "father",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ちち"
    },
    {
     "w": "父母",
     "r": "ふぼ",
     "m": "parents",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ふ"
    }
   ],
   "母": [
@@ -1589,13 +1818,15 @@
     "w": "母",
     "r": "はは",
     "m": "mother",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "はは"
    },
    {
     "w": "父母",
     "r": "ふぼ",
     "m": "parents",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ぼ"
    }
   ],
   "毎": [
@@ -1603,13 +1834,15 @@
     "w": "毎日",
     "r": "まいにち",
     "m": "every day",
-    "kind": "on"
+    "kind": "on",
+    "kr": "まい"
    },
    {
     "w": "毎年",
     "r": "まいとし",
     "m": "every year",
-    "kind": "on"
+    "kind": "on",
+    "kr": "まい"
    }
   ],
   "週": [
@@ -1617,13 +1850,15 @@
     "w": "今週",
     "r": "こんしゅう",
     "m": "this week",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しゅう"
    },
    {
     "w": "週末",
     "r": "しゅうまつ",
     "m": "weekend",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しゅう"
    }
   ],
   "今": [
@@ -1631,19 +1866,22 @@
     "w": "今",
     "r": "いま",
     "m": "now",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "いま"
    },
    {
     "w": "今日",
     "r": "きょう",
     "m": "today",
-    "kind": "irregular"
+    "kind": "irregular",
+    "kr": null
    },
    {
     "w": "今週",
     "r": "こんしゅう",
     "m": "this week",
-    "kind": "on"
+    "kind": "on",
+    "kr": "こん"
    }
   ],
   "何": [
@@ -1651,13 +1889,15 @@
     "w": "何",
     "r": "なに",
     "m": "what",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "なに"
    },
    {
     "w": "何人",
     "r": "なんにん",
     "m": "how many people",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "なん"
    }
   ],
   "前": [
@@ -1665,13 +1905,15 @@
     "w": "前",
     "r": "まえ",
     "m": "before, front",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "まえ"
    },
    {
     "w": "午前",
     "r": "ごぜん",
     "m": "morning, a.m.",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ぜん"
    }
   ],
   "後": [
@@ -1679,13 +1921,15 @@
     "w": "後",
     "r": "あと",
     "m": "after",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あと"
    },
    {
     "w": "午後",
     "r": "ごご",
     "m": "afternoon, p.m.",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ご"
    }
   ],
   "午": [
@@ -1693,13 +1937,15 @@
     "w": "午前",
     "r": "ごぜん",
     "m": "a.m.",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ご"
    },
    {
     "w": "午後",
     "r": "ごご",
     "m": "p.m.",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ご"
    }
   ],
   "分": [
@@ -1707,19 +1953,22 @@
     "w": "分かる",
     "r": "わかる",
     "m": "to understand",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "わ"
    },
    {
     "w": "五分",
     "r": "ごふん",
     "m": "five minutes",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ふん"
    },
    {
     "w": "自分",
     "r": "じぶん",
     "m": "oneself",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ぶん"
    }
   ],
   "半": [
@@ -1727,13 +1976,15 @@
     "w": "半分",
     "r": "はんぶん",
     "m": "half",
-    "kind": "on"
+    "kind": "on",
+    "kr": "はん"
    },
    {
     "w": "半年",
     "r": "はんとし",
     "m": "half a year",
-    "kind": "on"
+    "kind": "on",
+    "kr": "はん"
    }
   ],
   "物": [
@@ -1741,13 +1992,15 @@
     "w": "物",
     "r": "もの",
     "m": "thing",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "もの"
    },
    {
     "w": "動物",
     "r": "どうぶつ",
     "m": "animal",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ぶつ"
    }
   ],
   "事": [
@@ -1755,13 +2008,15 @@
     "w": "事",
     "r": "こと",
     "m": "thing, matter",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "こと"
    },
    {
     "w": "仕事",
     "r": "しごと",
     "m": "work",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ごと"
    }
   ],
   "場": [
@@ -1769,13 +2024,15 @@
     "w": "場所",
     "r": "ばしょ",
     "m": "place",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ば"
    },
    {
     "w": "会場",
     "r": "かいじょう",
     "m": "venue",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じょう"
    }
   ],
   "自": [
@@ -1783,13 +2040,15 @@
     "w": "自分",
     "r": "じぶん",
     "m": "oneself",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じ"
    },
    {
     "w": "自転車",
     "r": "じてんしゃ",
     "m": "bicycle",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じ"
    }
   ],
   "動": [
@@ -1797,13 +2056,15 @@
     "w": "動く",
     "r": "うごく",
     "m": "to move",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "うご"
    },
    {
     "w": "動物",
     "r": "どうぶつ",
     "m": "animal",
-    "kind": "on"
+    "kind": "on",
+    "kr": "どう"
    }
   ],
   "体": [
@@ -1811,13 +2072,15 @@
     "w": "体",
     "r": "からだ",
     "m": "body",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "からだ"
    },
    {
     "w": "体育",
     "r": "たいいく",
     "m": "physical education",
-    "kind": "on"
+    "kind": "on",
+    "kr": "たい"
    }
   ],
   "元": [
@@ -1825,13 +2088,15 @@
     "w": "元気",
     "r": "げんき",
     "m": "healthy",
-    "kind": "on"
+    "kind": "on",
+    "kr": "げん"
    },
    {
     "w": "元",
     "r": "もと",
     "m": "origin",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "もと"
    }
   ],
   "以": [
@@ -1839,13 +2104,15 @@
     "w": "以上",
     "r": "いじょう",
     "m": "more than",
-    "kind": "on"
+    "kind": "on",
+    "kr": "い"
    },
    {
     "w": "以下",
     "r": "いか",
     "m": "less than",
-    "kind": "on"
+    "kind": "on",
+    "kr": "い"
    }
   ],
   "多": [
@@ -1853,13 +2120,15 @@
     "w": "多い",
     "r": "おおい",
     "m": "many",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "おお"
    },
    {
     "w": "多数",
     "r": "たすう",
     "m": "large number",
-    "kind": "on"
+    "kind": "on",
+    "kr": "た"
    }
   ],
   "少": [
@@ -1867,19 +2136,22 @@
     "w": "少ない",
     "r": "すくない",
     "m": "few",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "すく"
    },
    {
     "w": "少し",
     "r": "すこし",
     "m": "a little",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "すこ"
    },
    {
     "w": "少年",
     "r": "しょうねん",
     "m": "boy",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しょう"
    }
   ],
   "知": [
@@ -1887,13 +2159,15 @@
     "w": "知る",
     "r": "しる",
     "m": "to know",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "し"
    },
    {
     "w": "知識",
     "r": "ちしき",
     "m": "knowledge",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ち"
    }
   ],
   "思": [
@@ -1901,13 +2175,15 @@
     "w": "思う",
     "r": "おもう",
     "m": "to think",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "おも"
    },
    {
     "w": "思考",
     "r": "しこう",
     "m": "thought",
-    "kind": "on"
+    "kind": "on",
+    "kr": "し"
    }
   ],
   "作": [
@@ -1915,13 +2191,15 @@
     "w": "作る",
     "r": "つくる",
     "m": "to make",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "つく"
    },
    {
     "w": "作品",
     "r": "さくひん",
     "m": "a work",
-    "kind": "on"
+    "kind": "on",
+    "kr": "さく"
    }
   ],
   "使": [
@@ -1929,13 +2207,15 @@
     "w": "使う",
     "r": "つかう",
     "m": "to use",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "つか"
    },
    {
     "w": "使用",
     "r": "しよう",
     "m": "use",
-    "kind": "on"
+    "kind": "on",
+    "kr": "し"
    }
   ],
   "住": [
@@ -1943,13 +2223,15 @@
     "w": "住む",
     "r": "すむ",
     "m": "to live",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "す"
    },
    {
     "w": "住所",
     "r": "じゅうしょ",
     "m": "address",
-    "kind": "on"
+    "kind": "on",
+    "kr": "じゅう"
    }
   ],
   "開": [
@@ -1957,13 +2239,15 @@
     "w": "開ける",
     "r": "あける",
     "m": "to open",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あ"
    },
    {
     "w": "開始",
     "r": "かいし",
     "m": "start",
-    "kind": "on"
+    "kind": "on",
+    "kr": "かい"
    }
   ],
   "心": [
@@ -1971,13 +2255,15 @@
     "w": "心",
     "r": "こころ",
     "m": "heart, mind",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "こころ"
    },
    {
     "w": "安心",
     "r": "あんしん",
     "m": "relief",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しん"
    }
   ],
   "紙": [
@@ -1985,13 +2271,15 @@
     "w": "紙",
     "r": "かみ",
     "m": "paper",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "かみ"
    },
    {
     "w": "手紙",
     "r": "てがみ",
     "m": "letter",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "がみ"
    }
   ],
   "魚": [
@@ -1999,13 +2287,15 @@
     "w": "魚",
     "r": "さかな",
     "m": "fish",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "さかな"
    },
    {
     "w": "金魚",
     "r": "きんぎょ",
     "m": "goldfish",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ぎょ"
    }
   ],
   "鳥": [
@@ -2013,13 +2303,15 @@
     "w": "鳥",
     "r": "とり",
     "m": "bird",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "とり"
    },
    {
     "w": "白鳥",
     "r": "はくちょう",
     "m": "swan",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ちょう"
    }
   ],
   "馬": [
@@ -2027,13 +2319,15 @@
     "w": "馬",
     "r": "うま",
     "m": "horse",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "うま"
    },
    {
     "w": "競馬",
     "r": "けいば",
     "m": "horse racing",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ば"
    }
   ],
   "米": [
@@ -2041,13 +2335,15 @@
     "w": "米",
     "r": "こめ",
     "m": "rice",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "こめ"
    },
    {
     "w": "米国",
     "r": "べいこく",
     "m": "USA",
-    "kind": "on"
+    "kind": "on",
+    "kr": "べい"
    }
   ],
   "茶": [
@@ -2055,13 +2351,15 @@
     "w": "お茶",
     "r": "おちゃ",
     "m": "tea",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ちゃ"
    },
    {
     "w": "喫茶店",
     "r": "きっさてん",
     "m": "coffee shop",
-    "kind": "on"
+    "kind": "on",
+    "kr": "さ"
    }
   ],
   "色": [
@@ -2069,13 +2367,15 @@
     "w": "色",
     "r": "いろ",
     "m": "colour",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "いろ"
    },
    {
     "w": "特色",
     "r": "とくしょく",
     "m": "characteristic",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しょく"
    }
   ],
   "風": [
@@ -2083,13 +2383,15 @@
     "w": "風",
     "r": "かぜ",
     "m": "wind",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "かぜ"
    },
    {
     "w": "台風",
     "r": "たいふう",
     "m": "typhoon",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ふう"
    }
   ],
   "海": [
@@ -2097,13 +2399,15 @@
     "w": "海",
     "r": "うみ",
     "m": "sea",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "うみ"
    },
    {
     "w": "海外",
     "r": "かいがい",
     "m": "overseas",
-    "kind": "on"
+    "kind": "on",
+    "kr": "かい"
    }
   ],
   "雪": [
@@ -2111,13 +2415,15 @@
     "w": "雪",
     "r": "ゆき",
     "m": "snow",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ゆき"
    },
    {
     "w": "大雪",
     "r": "おおゆき",
     "m": "heavy snow",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ゆき"
    }
   ],
   "星": [
@@ -2125,13 +2431,15 @@
     "w": "星",
     "r": "ほし",
     "m": "star",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ほし"
    },
    {
     "w": "火星",
     "r": "かせい",
     "m": "Mars",
-    "kind": "on"
+    "kind": "on",
+    "kr": "せい"
    }
   ],
   "朝": [
@@ -2139,13 +2447,15 @@
     "w": "朝",
     "r": "あさ",
     "m": "morning",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "あさ"
    },
    {
     "w": "今朝",
     "r": "けさ",
     "m": "this morning",
-    "kind": "irregular"
+    "kind": "irregular",
+    "kr": null
    }
   ],
   "昼": [
@@ -2153,13 +2463,15 @@
     "w": "昼",
     "r": "ひる",
     "m": "noon, daytime",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "ひる"
    },
    {
     "w": "昼食",
     "r": "ちゅうしょく",
     "m": "lunch",
-    "kind": "on"
+    "kind": "on",
+    "kr": "ちゅう"
    }
   ],
   "夜": [
@@ -2167,13 +2479,15 @@
     "w": "夜",
     "r": "よる",
     "m": "night",
-    "kind": "kun"
+    "kind": "kun",
+    "kr": "よる"
    },
    {
     "w": "今夜",
     "r": "こんや",
     "m": "tonight",
-    "kind": "on"
+    "kind": "on",
+    "kr": "や"
    }
   ],
   "所": [
@@ -2181,13 +2495,15 @@
     "w": "場所",
     "r": "ばしょ",
     "m": "place",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しょ"
    },
    {
     "w": "住所",
     "r": "じゅうしょ",
     "m": "address",
-    "kind": "on"
+    "kind": "on",
+    "kr": "しょ"
    }
   ]
  }

@@ -156,18 +156,23 @@ everything else in the app.
   game, it says so and offers to widen rather than quietly pulling in characters
   you've never seen. The general, everything-in-rotation modes are all still
   there.
-- **Games.** Eight of them: Match Pairs and Reading Pairs (beat the clock),
+- **Compound readings.** 日 is ひ on its own but に in 日本 and か in 三日. Given a
+  real word, pick how the kanji is read inside it — then see the same character
+  read differently elsewhere. This is the gap between recognising a kanji and
+  actually reading one.
+- **Games.** Nine of them: Match Pairs and Reading Pairs (beat the clock),
   Memory Flip (face-down concentration), Odd One Out (three kanji share an
   on-reading, find the impostor), Snap Judgment (45 seconds of true or false),
   Lightning Round (60-second streak run), Survival (three lives, questions
   march down the frequency list and get harder), and Kanji Horde (pixel-art
-  zombies advance on your gate; each correct answer cuts down the closest one).
+  zombies advance on your gate; each correct answer cuts down the closest one),
+  and Compound Readings.
   Games count in your stats but don't affect the review schedule.
 - **XP, levels, and ranks.** Every answer and path star earns XP. Levels climb
   through ten Japanese-flavored ranks, from 見習い (Apprentice) to 漢字王
   (Kanji King), with a progress bar on the dashboard and daily goals that
   reset at midnight.
-- **Badges and charms.** Thirty-three badges on the Stats page, from 初陣 (First
+- **Badges and charms.** Thirty-four badges on the Stats page, from 初陣 (First
   Battle) to 常用制覇 (Jōyō Conquest), covering streaks, volume, coverage,
   path progress, night-owl reviews, and zombie hunting. Treasure chests along
   the path hold twelve collectible charms (招き猫, 鳥居, 折鶴, ...).

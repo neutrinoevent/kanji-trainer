@@ -489,6 +489,53 @@ function vocabBlock(k, opts = {}) {
     </div>`;
 }
 
+// ---------------------------------------------------------------- compound readings
+//
+// Reading cards teach the standalone reading — what you'd say seeing a bare 日.
+// That is deliberately a simplification, and this is where it gets paid back:
+// given 三日, is 日 read にち, か or ひ? A learner who can only produce the
+// isolated reading cannot read a newspaper, and until now nothing asked.
+
+/** Words where we know which slice of the reading belongs to this kanji. */
+const compoundWords = (k) => vocabFor(k).filter((v) => v.kr);
+
+/** Kanji whose examples show it read more than one way — the drillable ones. */
+function compoundReadable(k) {
+  const rs = new Set(compoundWords(k).map((v) => v.kr));
+  return rs.size >= 2;
+}
+
+/**
+ * One compound-reading question, or null if this kanji can't support a fair one.
+ *
+ * Distractors are the kanji's *own* other readings first: the interesting error
+ * is confusing にち with ひ, not with something unrelated. Other kanji's readings
+ * fill any gap so the question always has four options.
+ */
+function buildCompoundQuestion(k) {
+  const words = compoundWords(k);
+  if (words.length < 2) return null;
+  const target = pick(words);
+  const own = [...new Set(words.map((v) => v.kr))].filter((r) => r !== target.kr);
+  if (!own.length) return null;
+  const wrong = shuffle(own).slice(0, 3);
+  if (wrong.length < 3) {
+    const spoken = new Set([target.kr, ...wrong]);
+    for (const other of shuffle(S.kanji.slice(0, 400))) {
+      if (wrong.length >= 3) break;
+      const r = primaryReading(other);
+      if (r && !spoken.has(r)) { spoken.add(r); wrong.push(r); }
+    }
+  }
+  return {
+    k, word: target.w, wordReading: target.r, meaning: target.m,
+    kind: target.kind, answer: target.kr,
+    choices: shuffle([target.kr, ...wrong.slice(0, 3)]),
+    // the other words are the teaching payload, shown after the answer
+    others: words.filter((v) => v.w !== target.w),
+  };
+}
+
 // ---------------------------------------------------------------- look-alikes
 //
 // Distractors drawn from the frequency neighbourhood are plausible but not

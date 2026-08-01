@@ -5,7 +5,12 @@
 
 // ================================================================ badges
 
+// The eight games that existed when "Jack of All Trades" was written. New games
+// are deliberately NOT added here: doing so would un-earn a badge people already
+// hold, and a badge is theirs once earned. New games get their own badge instead.
 const GAME_MODE_IDS = ["match-meaning", "match-reading", "memory", "odd-one-out", "snap", "lightning", "survival", "horde"];
+// Every mode that counts as "played something extra today".
+const EXTRA_MODE_IDS = [...GAME_MODE_IDS, "compound"];
 
 const BADGES = [
   { kanji: "初陣", name: "First Battle", desc: "Answer your first question", test: (s) => s.total_reviews >= 1 },
@@ -38,6 +43,7 @@ const BADGES = [
   { kanji: "宝探し", name: "Treasure Hunter", desc: "Open 5 treasure chests", test: (s, px) => px.gifts >= 5 },
   { kanji: "満開", name: "Full Bloom", desc: "Finish the first path section", test: (s, px) => px.firstSection },
   { kanji: "昇段", name: "Promotion", desc: "Reach level 10", test: (s, px) => px.level >= 10 },
+  { kanji: "熟語読み", name: "Compound Reader", desc: "Answer 50 compound readings", test: (s) => (s.modes?.compound?.c || 0) >= 50 },
   { kanji: "初試験", name: "First Certification", desc: "Pass a mastery exam", test: (s, px) => px.examsPassed >= 1 },
   { kanji: "満点", name: "Full Marks", desc: "Score 100% on a mastery exam", test: (s, px) => px.examBest >= 1 },
   { kanji: "十冠", name: "Ten Crowns", desc: "Pass ten mastery exams", test: (s, px) => px.examsPassed >= 10 },

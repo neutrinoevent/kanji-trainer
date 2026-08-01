@@ -15,7 +15,7 @@ routes.dashboard = async () => {
   const maxN = Math.max(1, ...days14.map((x) => x.n));
 
   const today = stats.today || { n: 0, correct: 0, modes: [] };
-  const extraModes = [...GAME_MODE_IDS, "path-quiz", "path-boss"];
+  const extraModes = [...EXTRA_MODE_IDS, "path-quiz", "path-boss"];
   const didExtra = today.modes.some((m) => extraModes.includes(m));
   const goal = (label, cur, target, done) => `
     <div class="goal-row ${done ? "done" : ""}">

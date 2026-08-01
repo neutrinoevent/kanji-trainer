@@ -5,6 +5,124 @@
 
 // ================================================================ games
 
+/**
+ * Compound reading drill.
+ *
+ * Sits with the games rather than in review because it is practice, not
+ * assessment: it does not touch the schedule, and it asks about something the
+ * SRS deliberately doesn't track. Answers are logged as evidence in their own
+ * mode name so they show in stats without polluting the fluency bar, which is
+ * built around the standalone reading.
+ */
+function compoundGame(sc) {
+  const pool = gamePool(sc).filter((r) => compoundReadable(r.k));
+  if (!pool.length) {
+    const inScope = gamePool(sc).length;
+    setMain(`
+      <h1>Compound readings</h1>
+      ${gameScopeBar(sc)}
+      <div class="card" style="text-align:center;padding:38px 22px">
+        <h2 style="margin-top:0">No example words for this set yet</h2>
+        <p class="sub">This drill needs kanji with example words showing more than one
+          reading. ${inScope
+            ? `None of the ${inScope} kanji you've started in <b>${esc(scopeLabel(sc))}</b> have them yet —
+               the word list covers the more common kanji first.`
+            : "Start a batch first."}</p>
+        <div class="row" style="justify-content:center">
+          <button class="primary-btn" onclick="location.hash='${gameHash("compound", null)}'">Try everything</button>
+          <button class="ghost-btn" onclick="location.hash='#/games'">Other games</button>
+        </div>
+      </div>`);
+    return;
+  }
+  const TOTAL = 10;
+  let round = 0, score = 0;
+
+  const ask = () => {
+    if (!document.getElementById("cr-box")) return;
+    if (round === TOTAL) {
+      $("#cr-box").innerHTML = `
+        <div class="q-kind">Done</div>
+        <div class="q-prompt-text">${score} / ${TOTAL}</div>
+        <p class="sub" style="margin:6px 0 14px">Readings shift inside words. Knowing which
+          one a compound takes is the difference between recognising a kanji and reading it.</p>
+        <div class="row" style="justify-content:center">
+          <button class="primary-btn" id="cr-again">Again</button>
+          <button class="ghost-btn" onclick="location.hash='#/games'">Done</button>
+        </div>`;
+      $("#cr-again").onclick = () => compoundGame(sc);
+      return;
+    }
+    const q = buildCompoundQuestion(pick(pool).k);
+    if (!q) { round++; return ask(); }
+    $("#cr-round").textContent = `${round + 1} / ${TOTAL}`;
+    $("#cr-score").textContent = score;
+    const marked = Array.from(q.word).map((c) =>
+      c === q.k ? `<b class="cr-target">${c}</b>` : esc(c)).join("");
+    $("#cr-box").innerHTML = `
+      <div class="q-kind">How is <span class="jp">${q.k}</span> read in this word?</div>
+      <div class="cr-word jp">${marked}</div>
+      <div class="cr-gloss">${esc(q.meaning)}</div>
+      <div class="choices">${q.choices.map((c, i) =>
+        `<button class="choice jp" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}
+      </div>
+      <div class="q-feedback" id="cr-fb"></div>`;
+    const btns = [...document.querySelectorAll("#cr-box .choice")];
+    const onPick = (btn) => {
+      const ok = btn.dataset.c === q.answer;
+      if (ok) score++;
+      gameLog(q.k, "reading", "compound", ok);
+      btns.forEach((b) => {
+        b.disabled = true;
+        if (b.dataset.c === q.answer) b.classList.add("correct");
+        else if (b === btn && !ok) b.classList.add("wrong");
+      });
+      $("#cr-fb").innerHTML = `
+        <div class="verdict-banner ${ok ? "ok" : "no"}">
+          <span class="v-mark">${ok ? "✓" : "✗"}</span>
+          <span class="v-text">${esc(q.word)} is <span class="jp">${esc(q.wordReading)}</span></span>
+        </div>
+        <div class="detail"><span class="jp">${q.k}</span> is
+          <span class="jp">${esc(q.answer)}</span> here —
+          ${q.kind === "on" ? "its 音読み, the Chinese-derived reading"
+            : "its 訓読み, the native Japanese reading"}.</div>
+        ${q.others.length ? `<div class="cr-others">
+          <div class="vocab-title">Elsewhere</div>
+          ${q.others.slice(0, 3).map((v) => `
+            <div class="vocab-row">
+              <span class="vw jp">${Array.from(v.w).map((c) =>
+                c === q.k ? `<b class="vw-k">${c}</b>` : esc(c)).join("")}</span>
+              <span class="vr jp">${esc(v.r)}</span>
+              <span class="vm">${esc(v.m)}</span>
+              <span class="vk">${v.kr ? esc(v.kr) : "—"}</span>
+            </div>`).join("")}
+        </div>` : ""}`;
+      round++;
+      setTimeout(ask, ok ? 1500 : 2600);
+    };
+    btns.forEach((b) => (b.onclick = () => onPick(b)));
+    keyOnce((e) => {
+      if (e.repeat) return false;
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= btns.length && !btns[0].disabled) { onPick(btns[n - 1]); return true; }
+      return false;
+    });
+  };
+
+  setMain(`
+    <h1>Compound readings</h1>
+    ${gameScopeBar(sc)}
+    <div class="lightning-hud">
+      <span>Round <b id="cr-round">1 / ${TOTAL}</b></span>
+      <span>Correct <b id="cr-score">0</b></span>
+    </div>
+    <div class="quiz-wrap"><div class="quiz-card" id="cr-box"></div></div>
+    <div class="row" style="justify-content:center;margin-top:16px">
+      <button class="ghost-btn" onclick="location.hash='#/games'">Quit</button>
+    </div>`);
+  ask();
+}
+
 const GAME_LAUNCHERS = {
   match: (sc) => matchGame("meaning", { scope: sc }),
   reading: (sc) => matchGame("reading", { scope: sc }),
@@ -14,11 +132,12 @@ const GAME_LAUNCHERS = {
   lightning: (sc) => lightningGame(sc),
   survival: (sc) => survivalGame(sc),
   horde: (sc) => hordeGame(sc),
+  compound: (sc) => compoundGame(sc),
 };
 const GAME_TITLES = {
   match: "Match pairs", reading: "Reading pairs", memory: "Memory flip",
   odd: "Odd one out", snap: "Snap judgment", lightning: "Lightning round",
-  survival: "Survival", horde: "Kanji horde",
+  survival: "Survival", horde: "Kanji horde", compound: "Compound readings",
 };
 
 const GAME_CARDS = [
@@ -30,6 +149,7 @@ const GAME_CARDS = [
   ["lightning", "⚡ Lightning round", "60 seconds. As many correct answers as you can. Streaks count.", 4],
   ["survival", "❤️ Survival", "Three lives, no timer. Questions get harder as you go.", 4],
   ["horde", "🧟 Kanji horde", "Zombies shamble toward your gate. Each correct answer cuts down the closest one.", 4],
+  ["compound", "🧩 Compound readings", "日 is ひ alone but に in 日本. Given a real word, pick how the kanji is read inside it.", 1],
 ];
 
 routes.games = async (arg) => {
