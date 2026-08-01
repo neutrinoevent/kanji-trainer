@@ -744,3 +744,22 @@ h2 { font-size: 17px; margin: 26px 0 12px; }
   .vocab-row { grid-template-columns: auto 1fr auto; }
   .vr { grid-column: 1 / -1; }
 }
+
+/* ============================================================ exam readiness */
+.ready-chip { font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+              border-radius: 999px; padding: 2px 8px; border: 1px solid currentColor;
+              cursor: help; white-space: nowrap; }
+.ready-chip.ready { color: var(--good); }
+.ready-chip.soon { color: var(--warn); }
+.ready-chip.passed { color: var(--accent); }
+.ready-card { border-color: var(--warn); }
+.ready-card.ready { border-color: var(--good); }
+.ready-card.passed { border-color: var(--accent); }
+.ready-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.ready-pct { font-size: 26px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
+             color: var(--muted); }
+.ready-card.ready .ready-pct { color: var(--good); }
+.ready-card.passed .ready-pct { color: var(--accent); }
+.chip-flag { font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+             color: var(--good); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; }
+.chip.r-passed .chip-flag { color: var(--accent); }

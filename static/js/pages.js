@@ -331,6 +331,7 @@ routes.study = async (arg) => {
         <div class="batch-card ${started || suggested ? "" : "locked"}" data-col="${c.id}" data-batch="${i}">
           <div class="batch-title">Batch ${i + 1}
             <span class="pill ${started ? "started" : ""}">${pill}</span>
+            ${readyChip({ cid: c.id, from: i, to: i })}
           </div>
           <div class="batch-range">#${i * S.settings.batch_size + 1}–${i * S.settings.batch_size + chunk.length} of ${c.name}</div>
           <div class="batch-kanji-preview">${chunk.slice(0, 12).map((r) => r.k).join(" ")}</div>
@@ -382,6 +383,7 @@ async function batchDetail(cid, i) {
           onclick="location.hash='#/exam/${scopeSuffix({ cid, from: i, to: i })}'">📋 Mastery exam</button>` : ""}
       <button class="ghost-btn" id="back-btn">← ${col.group}</button>
     </div>
+    ${readyCard({ cid, from: i, to: i })}
     <div class="kanji-grid">
       ${chunk.map((r) => {
         const m = srsOf(r.k, "meaning"), rd = srsOf(r.k, "reading");
@@ -1090,18 +1092,123 @@ function examPicker() {
   const rows = [...lists().filter((l) => listKanji(l).length).map((l) => ({ list: l.id })),
                 ...res.list.flatMap((s) => s.batches.map((b) => ({ cid: s.col.id, from: b.index, to: b.index }))),
                 ...res.list.map((s) => ({ cid: s.col.id, from: null, to: null }))];
+  // most-demonstrated first, so the set worth examining is the one you see
+  const rank = { ready: 0, soon: 1, passed: 2, early: 3 };
+  rows.sort((a, b) => {
+    const ra = examReadiness(a), rb = examReadiness(b);
+    const da = rank[ra?.state ?? "early"], db = rank[rb?.state ?? "early"];
+    return da !== db ? da - db : (rb?.pct || 0) - (ra?.pct || 0);
+  });
   setMain(`
     <h1>Mastery exam</h1>
     <p class="sub">A capstone for a set you've been working through. Feedback comes
       at the end, nothing is re-asked, and it leaves your review schedule alone —
       so a bad day costs you nothing but the time.</p>
     ${rows.length ? `<div class="card"><div class="chart-title">Which set?</div>
+      <div class="chart-sub">Sets you\'ve worked through most are listed first.</div>
       <div class="scope-chips" style="margin-top:12px">
-        ${rows.map((sc) => `<button class="chip" onclick="location.hash='#/exam/${scopeSuffix(sc)}'">
-          ${esc(scopeLabel(sc))} <span class="chip-n">${(scopeChars(sc) || []).length}</span></button>`).join("")}
+        ${rows.map((sc) => {
+          const r = examReadiness(sc);
+          return `<button class="chip ${r ? "r-" + r.state : ""}"
+            onclick="location.hash='#/exam/${scopeSuffix(sc)}'"
+            ${r ? `data-tip="${esc(r.why)}"` : ""}>
+            ${esc(scopeLabel(sc))} <span class="chip-n">${(scopeChars(sc) || []).length}</span>
+            ${r && r.state === "ready" ? `<span class="chip-flag">ready</span>`
+              : r && r.state === "passed" ? `<span class="chip-flag">✓</span>` : ""}</button>`;
+        }).join("")}
       </div></div>`
       : `<div class="card">Nothing in rotation yet. <a href="#/study">Start a batch</a> first.</div>`}
   `);
+}
+
+/**
+ * Whether a set is worth examining yet.
+ *
+ * The exam existed and nothing ever pointed at it, so a learner had to think of
+ * it themselves — which mostly meant not sitting it, or sitting it far too early
+ * and reading a bad score as a verdict on themselves rather than on the timing.
+ *
+ * Readiness is measured the same way everything else is: what has been
+ * demonstrated. The bar is deliberately a little below the exam's own pass mark,
+ * because an exam you are certain to pass teaches nothing — the point is to say
+ * "this is worth your time now", not "you will definitely pass".
+ */
+const READY_BAR = 0.7;         // share of the set operative on both rungs
+const READY_STARTED = 0.9;     // ...of a set that is essentially all in rotation
+// Below this, say nothing. A set sitting at 0% demonstrated is not "nearly
+// ready", and calling it that is the kind of hollow encouragement this app is
+// supposed to avoid — it also makes the genuine signal worthless.
+const READY_QUIET = 0.4;
+
+function examReadiness(sc) {
+  const chars = scopeChars(sc) || [];
+  if (chars.length < 5) return null;
+  let started = 0, ready = 0, solid = 0;
+  for (const k of chars) {
+    if (kanjiStarted(k)) started++;
+    const m = tierOf(k, "meaning"), r = tierOf(k, "reading");
+    if (m >= 2 && r >= 2) ready++;
+    if (m >= 3 && r >= 3) solid++;
+  }
+  const passed = examHistory(sc).some((x) => x.passed);
+  const startedPct = started / chars.length;
+  const readyPct = ready / chars.length;
+  let state, why;
+  if (passed) {
+    state = "passed";
+    why = solid >= chars.length * READY_BAR
+      ? "Passed. Worth retaking now and then to keep it honest."
+      : "Passed. Retake it later to confirm it stuck.";
+  } else if (startedPct < READY_STARTED) {
+    state = "early";
+    why = `${chars.length - started} of ${chars.length} kanji aren't in your rotation yet.`;
+  } else if (readyPct >= READY_BAR) {
+    state = "ready";
+    why = `${ready} of ${chars.length} are demonstrated on both meaning and reading.`;
+  } else if (readyPct >= READY_QUIET) {
+    state = "soon";
+    why = `${ready} of ${chars.length} demonstrated — around ${
+      Math.ceil(chars.length * READY_BAR)} makes this worth sitting.`;
+  } else {
+    state = "early";
+    why = `${ready} of ${chars.length} demonstrated so far.`;
+  }
+  return { state, why, ready, solid, started, total: chars.length,
+           pct: readyPct, passed };
+}
+
+const READY_LABEL = { ready: "Ready for the exam", soon: "Nearly exam-ready",
+                      early: "Still building", passed: "Exam passed" };
+
+/** A one-line readiness badge, for anywhere a set is listed. */
+function readyChip(sc) {
+  const r = examReadiness(sc);
+  if (!r || r.state === "early") return "";
+  return `<span class="ready-chip ${r.state}" data-tip="${esc(r.why)}">${
+    r.state === "passed" ? "✓ passed" : r.state === "ready" ? "exam-ready" : "nearly ready"}</span>`;
+}
+
+/** The fuller prompt, for a page about one set. */
+function readyCard(sc) {
+  const r = examReadiness(sc);
+  if (!r || r.state === "early") return "";
+  return `
+    <div class="card ready-card ${r.state}">
+      <div class="ready-head">
+        <div>
+          <div class="chart-title">${READY_LABEL[r.state]}</div>
+          <div class="chart-sub">${esc(r.why)}</div>
+        </div>
+        <div class="ready-pct">${Math.round(r.pct * 100)}%</div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="${r.state === "ready" ? "primary-btn" : "ghost-btn"}"
+          onclick="location.hash='#/exam/${scopeSuffix(sc)}'">📋 ${
+          r.passed ? "Retake the exam" : "Sit the exam"}</button>
+        ${r.state !== "ready" && !r.passed
+          ? `<button class="ghost-btn" onclick="location.hash='${scopeHash(sc)}'">Keep reviewing</button>` : ""}
+      </div>
+    </div>`;
 }
 
 function examHistory(sc) {

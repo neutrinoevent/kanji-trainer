@@ -61,14 +61,15 @@ stroke-count proximity is computable from the existing dataset; a curated pair
 list would be better for the frequent range. The sibling hiragana-trainer likely
 has confusable-pair machinery worth reading first.
 
-### 7. Example vocabulary per kanji — `M`
+### ~~7. Example vocabulary per kanji~~ — DONE (V-016)
 Makes the on/kun split concrete: showing 日本 / 日曜日 / 今日 is *why* 日 is ひ
 alone but にち in compounds. Needs a vocabulary source (JMdict, CC BY-SA, same
 attribution treatment as KANJIDIC2). Also unlocks idea 6.
 
-### 8. Compound-reading drill — `M`
+### 8. Compound-reading drill — `M` — now unblocked
 Given 日本, is 日 read にち, じつ or ひ? Tests exactly what the read-aloud cards
-deliberately simplify away. Depends on 7.
+deliberately simplify away. `data/vocab.json` (V-016) is the dataset it needed,
+so this is ready to build.
 
 ---
 
@@ -84,9 +85,8 @@ deliberately simplify away. Depends on 7.
 - **Bring exam misses forward in the schedule.** Considered and rejected in
   V-010 D3 because it gives the exam a cost. Worth revisiting once we know
   whether the drill-the-missed button actually gets used. `S`
-- **Exam readiness signal.** Show on a batch when its cards are demonstrated
-  enough that sitting the exam is likely to go well, so the invitation arrives at
-  the right moment rather than whenever the learner happens to look. `S`
+- ~~**Exam readiness signal.**~~ Done (V-016) — ready/nearly/passed on the batch
+  page, the Batches grid, the review hub and a ranked exam picker.
 
 ## Study mechanics
 
@@ -141,6 +141,19 @@ deliberately simplify away. Depends on 7.
   needs an editor's pass before the next thing is added to it. `S`
 - **Two known-stale test assertions** (`game:odd`; a removed `__lastSess` hook).
   Harmless but they cost attention every regression run. `S`
+
+## Data files worth extending
+
+Four curated files now drive quality, all following the same pattern: shipped in
+`data/`, overridable in `userdata/*.local.json`, merged server-side. Each one
+improves the app just by growing, with no code change and no decision:
+
+- `senses.json` — 149 kanji. Growing it tightens strict grading automatically.
+- `similar.json` — 200 kanji. Growing it makes multiple choice harder.
+- `vocab.json` — 145 kanji. Growing it explains more readings.
+- `spoken.json` — 76 kanji. Growing it fixes more read-aloud answers.
+
+Good work to chip away at rather than schedule.
 
 ## Rejected, and why — so they aren't re-proposed
 

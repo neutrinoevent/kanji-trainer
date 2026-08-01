@@ -1292,6 +1292,81 @@ detail modal, with no load-order or runtime errors.
 
 ---
 
+## V-016 — Harder questions, real words, and telling people when to sit the exam (raised 2026-07-31)
+
+Three features, one theme: the app knew things it wasn't saying.
+
+### Distractors a learner would actually confuse
+
+Multiple choice drew wrong options from the frequency neighbourhood. Plausible,
+but not difficult — nothing about 待 against 会 tests whether you can read 待.
+Mistaking similar-looking characters is the dominant failure in real reading, and
+it was the one thing never asked about.
+
+**D1 — Curated, not computed.** The dataset has no radical or component
+decomposition, and stroke count is a poor proxy: 一 and 乙 share a count and look
+nothing alike. `data/similar.json` holds 84 groups over 200 kanji, covering both
+near-identical shapes (土/士, 未/末) and a shared dominant element (待/持/特,
+晴/清/静).
+
+**D2 — Mix, don't replace.** Look-alikes are offered first, the frequency
+neighbourhood fills the rest, and look-alikes are capped at one fewer than the
+number of options. That cap matters more than it looks: if every wrong option
+were a look-alike, the answer would stand out as the odd one, and the question
+would test shape-spotting rather than reading. Verified — 100 reverse questions
+for 待 all included one of 持/時/特, and no round in 200 was entirely look-alikes.
+
+Because it lives in the shared picker, review, drill, games and the exam all got
+it at once.
+
+### Example words
+
+The reading cards teach one standalone reading. Right for a beginner, but it
+leaves them unable to say why 日 is ひ alone and に in 日本 — the first thing that
+confuses anyone reading real Japanese.
+
+`data/vocab.json`: 316 words across 145 kanji, 107 of which show both an on and a
+kun reading. Each word records how the *target* kanji is read inside it, so 日
+appears as 日**本** (に), 三**日** (か), 毎**日** (に), tagged 音/訓, with the kanji
+picked out inside the word. 今日 きょう and 大人 おとな are marked irregular rather
+than forced into a category they don't belong to.
+
+**D3 — Contrast first.** If a kanji is read differently across its examples, the
+list leads with words that differ. Three words all using the same reading
+demonstrate nothing about why readings change, which is the entire point.
+
+**D4 — Shown, never tested.** Nothing new to memorise. This explains something
+the app was silent about; it isn't more material.
+
+**D5 — Curated over generated.** A handful of well-chosen words teaches the
+contrast; dozens from a dictionary dump would bury it. 31 KB against a repo that
+has to stay small enough to hand someone as a zip.
+
+### Exam readiness
+
+The exam existed and nothing pointed at it. A learner had to think of it
+themselves — which mostly meant not sitting it, or sitting it far too early and
+reading a bad score as a verdict on themselves rather than on the timing.
+
+**D6 — The bar sits below the pass mark.** Ready at 70% of the set demonstrated
+on both rungs, against a pass mark of 80%. An exam you're certain to pass teaches
+nothing; the signal says "this is worth your time now", not "you will pass".
+
+**D7 — Silence below 40%.** A set at 0% demonstrated is not "nearly ready", and
+saying so is exactly the hollow encouragement this project bans elsewhere. It
+also devalues the real signal.
+
+> Caught in testing: the first version had `soon` spanning 0–70%, so a batch with
+> **nothing** demonstrated displayed "Nearly exam-ready". Plainly false, and it
+> would have taught learners to ignore the badge entirely.
+
+Surfaced on the batch detail page (a card), the Batches grid and review hub (a
+chip), and the exam picker — which now ranks sets by readiness, so the one worth
+examining is the one you see first. After a pass, the language changes to
+retaking rather than sitting.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.

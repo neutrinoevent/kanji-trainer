@@ -230,6 +230,7 @@ function reviewHub(showAll) {
         <span class="brr-name">Batch ${b.index + 1}</span>
         <span class="brr-meta">${b.started}/${b.size} in rotation · ${st.due} due${
           st.fresh ? ` · ${st.fresh} new` : ""}</span>
+        ${readyChip(sc)}
         <button class="ghost-btn sm" onclick="location.hash='${scopeHash(sc)}'"
                 ${ready ? "" : "disabled"}>${st.due ? `Review (${st.due})` : ready ? "Review · new" : "Review"}</button>
         <button class="ghost-btn sm" onclick="location.hash='${scopeHash(sc, "drill")}'">Drill</button>
