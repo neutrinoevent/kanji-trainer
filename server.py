@@ -200,6 +200,22 @@ def _load_senses():
 
 
 SENSE_GROUPS = _load_senses()
+
+
+def _load_similar():
+    """Visually confusable kanji groups, with the user's overrides layered on."""
+    groups = []
+    for path in (os.path.join(BASE_DIR, "data", "similar.json"),
+                 os.path.join(USER_DIR, "similar.local.json")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                groups.extend(json.load(f).get("groups") or [])
+        except (OSError, ValueError):
+            pass
+    return groups
+
+
+SIMILAR_GROUPS = _load_similar()
 # The wording taught for each sense: curated first choice, else the raw gloss.
 SENSES = {row["k"]: ([g[0] for g in SENSE_GROUPS[row["k"]] if g]
                      if row["k"] in SENSE_GROUPS
@@ -1385,6 +1401,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.serve_file("static/index.html")
         if path == "/data/senses.json":
             return self.send_json({"senses": SENSE_GROUPS})
+        if path == "/data/similar.json":
+            return self.send_json({"groups": SIMILAR_GROUPS})
         if path == "/data/spoken.local.json":
             # lives in userdata/ now; the URL is unchanged so the client and any
             # instructions written down for users still work

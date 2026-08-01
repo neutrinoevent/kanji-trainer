@@ -127,6 +127,11 @@ everything else in the app.
   answer was and why, then asked to produce it before moving on. Answering with
   a real but secondary meaning is accepted and says so — but it doesn't count
   toward knowing the primary sense.
+- **Distractors that are actually hard.** When you're asked to pick the kanji for
+  a meaning, the wrong options are the ones you'd genuinely mistake it for — 待
+  against 持 and 時, not against whatever happened to sit nearby in the frequency
+  list. Confusing similar-looking characters is the dominant failure in real
+  reading, so it's what the questions test. Curated in `data/similar.json`.
 - **Several question types, no drawing.** Multiple-choice meaning, reverse
   (meaning to kanji), reading recognition, typed meaning with typo tolerance,
   and typed reading with a live romaji-to-kana converter (type `nichi`, see
@@ -190,12 +195,14 @@ static/                 the web UI (plain HTML/CSS/JS, no build step)
   js/                   the frontend in eight plain scripts — see js/README.md
 data/kanji.json         the 3,122-kanji dataset
 data/senses.json        curated meanings, grouped by sense (editable, see below)
+data/similar.json       kanji that look alike, for harder multiple choice
 data/spoken.json        curated read-aloud readings (editable, see below)
 userdata/               everything you own — updates never touch this
   trainer.db            your progress (created on first run)
   snapshots/            automatic timestamped backups
   spoken.local.json     your own reading overrides (optional)
   senses.local.json     your own meaning overrides (optional)
+  similar.local.json    your own look-alike groups (optional)
   exam-log.jsonl        your exam records, in plain text
 VISION.md               where the design ideas and decisions are written down
 ```

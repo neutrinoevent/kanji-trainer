@@ -432,6 +432,35 @@ function distractorPool(target) {
   return S.kanji.slice(lo, hi).filter((r) => r.k !== target.k);
 }
 
+// ---------------------------------------------------------------- look-alikes
+//
+// Distractors drawn from the frequency neighbourhood are plausible but not
+// difficult: nothing about 待 against 会 tests whether you can actually read 待.
+// Mistaking similar-looking characters is the dominant failure in real reading,
+// and it was the one thing the app never asked about. data/similar.json groups
+// the ones that are easy to confuse; see that file for why it is curated.
+
+/** Look-alikes for a kanji. Empty if none are known. */
+function lookAlikes(k) {
+  if (!S.similarIndex) return [];
+  return S.similarIndex[k] || [];
+}
+const hasLookAlikes = (k) => lookAlikes(k).length > 0;
+
+/** Flatten the curated groups to kanji -> [look-alikes], once, at boot. */
+function buildSimilarIndex(groups) {
+  const idx = {};
+  for (const g of groups || []) {
+    const chars = Array.from(g);
+    for (const c of chars) {
+      const others = chars.filter((x) => x !== c && S.byChar[x]);
+      if (!others.length) continue;
+      idx[c] = [...new Set([...(idx[c] || []), ...others])];
+    }
+  }
+  return idx;
+}
+
 function pickMeaningDistractors(target, n) {
   const used = new Set(target.meanings.map((m) => m.toLowerCase()));
   const out = [];
@@ -444,16 +473,31 @@ function pickMeaningDistractors(target, n) {
   return out;
 }
 
+/**
+ * Choose kanji to offer against `target`.
+ *
+ * Look-alikes come first, then the frequency neighbourhood fills the remainder,
+ * so a question is as hard as the data allows and still complete when no
+ * look-alikes are known. Mixing rather than replacing matters: if every option
+ * were a look-alike, the answer would be identifiable as the odd one out.
+ */
 function pickKanjiDistractors(target, n) {
   const used = new Set([target.k]);
   const tm = new Set(target.meanings.map((m) => m.toLowerCase()));
   const out = [];
-  for (const r of shuffle(distractorPool(target))) {
-    if (used.has(r.k)) continue;
-    if (r.meanings.some((m) => tm.has(m.toLowerCase()))) continue;
-    used.add(r.k); out.push(r.k);
-    if (out.length === n) break;
-  }
+  const take = (rows) => {
+    for (const r of rows) {
+      if (out.length === n) return;
+      if (!r || used.has(r.k)) continue;
+      if (r.meanings.some((m) => tm.has(m.toLowerCase()))) continue;
+      used.add(r.k);
+      out.push(r.k);
+    }
+  };
+  // capped at n-1 so at least one option always comes from outside the
+  // look-alike set, keeping the shape of the answer uninformative
+  take(shuffle(lookAlikes(target.k)).slice(0, Math.max(1, n - 1)).map((k) => S.byChar[k]));
+  take(shuffle(distractorPool(target)));
   return out;
 }
 

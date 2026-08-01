@@ -32,6 +32,11 @@ $("#theme-toggle").onclick = () => {
   try {
     S.senseGroups = (await (await fetch("/data/senses.json")).json()).senses || {};
   } catch (e) { S.senseGroups = {}; }
+  // visually confusable groups, flattened to kanji -> [look-alikes]
+  try {
+    const sim = await (await fetch("/data/similar.json")).json();
+    S.similarIndex = buildSimilarIndex(sim.groups);
+  } catch (e) { S.similarIndex = {}; }
   await loadState();
   await loadCollections();
   if (!localStorage.getItem("kt-theme") && S.settings.theme) {
