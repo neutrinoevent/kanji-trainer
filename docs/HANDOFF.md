@@ -15,7 +15,7 @@ A local kanji trainer. Python-standard-library server + vanilla JS + SQLite,
 double-click runnable on Windows, 3,122 kanji. Built for Alexander's brother
 ahead of a move to Japan and study at Waseda; useful to anyone learning kanji.
 
-`main` is pushed and clean. 39 commits. Roughly 1,600 lines of `server.py`,
+`main` is pushed and clean. 42 commits. Roughly 1,600 lines of `server.py`,
 4,570 of frontend across eight files in `static/js/`, 727 of CSS.
 
 Sibling project: `neutrinoevent/hiragana-trainer`, built from
@@ -43,6 +43,7 @@ alternatives, and what was deliberately left out.
 | V-014 | Numbers-moved notice, scoped Path, refreshed tour, leech handling | shipped |
 | V-015 | Curated senses; strictness follows the data; frontend split | shipped |
 | V-016 | Look-alike distractors, example vocabulary, exam readiness | shipped |
+| V-017 | Compound reading drill; adaptive practice exams | shipped |
 | V-002/3/4 | Phone access, hosting, durable sync | **parked** — see `docs/PARKED-…` |
 
 ## 3. The load-bearing ideas
@@ -75,6 +76,11 @@ not assumed to work (V-013).
 **Progress must be visible while it's being made.** A number that can't move
 during a session teaches the learner that effort is invisible (V-007). Keep the
 bars strict; keep the distance to them legible.
+
+**Nothing the user owns is ever taken away.** Not their data — `userdata/` is a
+boundary, not a list — and not what they've earned. When a ninth game was added
+in V-017 it was deliberately kept out of `GAME_MODE_IDS`, because that list
+drives a badge and extending it would un-earn a badge people already held.
 
 **Nothing the user owns is ever deleted or overwritten.** `userdata/` is a
 boundary, not a list — it's gitignored, so it isn't in the repo, so it isn't in
@@ -152,9 +158,10 @@ the repo root are Alexander's own files. Leave them untracked.
 
 Detail and reasoning in `docs/IDEAS.md`.
 
-1. **Compound-reading drill** — now unblocked: `data/vocab.json` is the dataset
-   it needed. Given 日本, is 日 read にち, じつ or ひ? Tests exactly what the
-   read-aloud cards deliberately simplify away.
+1. **Practice-exam follow-ons** — the machinery is built (V-017), so these are
+   changes to *selection*, not new systems: readiness informed by practice
+   results; a paper generated from a failed mastery exam; a full-length mock with
+   no adaptation; spaced weekly practice.
 2. **Extend the four curated data files** — `senses`, `similar`, `vocab`,
    `spoken`. Each improves the app just by growing, with no code change and no
    decision. Good work to chip away at.
