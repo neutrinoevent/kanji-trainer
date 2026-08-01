@@ -357,6 +357,7 @@ function pathLearn(node) {
               <dt>Kun</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
               <dt>Rank</dt><dd>#${r.freq || "—"} by frequency</dd>
             </dl>
+            ${vocabBlock(r.k)}
             ${senses(r).length > 1 ? `<p class="later-note">${senses(r).length - 1} further
               meaning${senses(r).length === 2 ? "" : "s"} — they come back later, once this one sticks.</p>` : ""}
           </div>

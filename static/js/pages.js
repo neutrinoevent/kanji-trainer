@@ -427,6 +427,8 @@ function kanjiModal(k, focusFacet) {
       <dt>Meanings</dt><dd>${senseLadder(r, taught)}
         ${locked > 0 ? `<div class="chart-sub">${locked} not yet unlocked — they arrive
           once the meaning card above is operative.</div>` : ""}</dd>
+      ${vocabFor(k).length ? `<dt>Seen in</dt><dd>${
+        vocabBlock(k, { title: false, limit: 4 })}</dd>` : ""}
       <dt>On readings</dt><dd class="jp">${r.on.join("、") || "—"}</dd>
       <dt>Kun readings</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
       <dt>Sets</dt><dd>${setBadges(r).map((b) => `<span class="pill">${b}</span>`).join(" ") || "—"}</dd>

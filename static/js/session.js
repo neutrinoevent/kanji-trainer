@@ -397,6 +397,7 @@ function introCard(sess, item) {
             <dt>Kun</dt><dd class="jp">${r.kun.join("、") || "—"}</dd>
             <dt>Rank</dt><dd>#${r.freq || "—"} most frequent</dd>
           </dl>
+          ${vocabBlock(r.k)}
           ${noteFor(r.k)}
           ${extra > 0 ? `<p class="later-note">${extra} further meaning${extra === 1 ? "" : "s"}
             (${esc(senses(r).slice(1, 4).join(", "))}${senses(r).length > 4 ? ", …" : ""})
@@ -636,6 +637,7 @@ function finishAnswer(sess, item, q, correct, chosen, ms, note) {
     <div class="detail">read aloud ${readingLine(r)}${q.font
       ? ` · shown in <span class="jp">${q.font.jp}</span> <span class="rk">${esc(q.font.en)}</span>` : ""}</div>
     ${senseLadder(r, sensesTaught(r.k))}
+    ${vocabBlock(r.k, { compact: true, limit: 2 })}
     ${noteFor(r.k)}
     <div class="fb-tools">${listBtn(r.k)}</div>
     <div id="fix-slot"></div>

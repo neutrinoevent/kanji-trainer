@@ -725,3 +725,22 @@ h2 { font-size: 17px; margin: 26px 0 12px; }
 .kanji-note { background: var(--surface-2); border-left: 3px solid var(--warn);
               border-radius: 0 8px 8px 0; padding: 9px 13px; margin: 10px auto 2px;
               max-width: 460px; font-size: 13.5px; color: var(--ink-2); text-align: left; }
+
+/* ============================================================ example words */
+.vocab-block { margin: 12px auto 4px; max-width: 460px; text-align: left; }
+.vocab-block.compact { margin: 8px auto 2px; }
+.vocab-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+               color: var(--muted); margin-bottom: 5px; }
+.vocab-row { display: grid; grid-template-columns: auto auto 1fr auto; gap: 10px;
+             align-items: baseline; padding: 3px 0; font-size: 13.5px; }
+.vw { font-family: var(--jp); font-size: 17px; color: var(--ink-2); }
+.vw-k { color: var(--accent); font-weight: 700; }
+.vr { font-family: var(--jp); font-size: 13px; color: var(--muted); }
+.vm { color: var(--ink-2); }
+.vk { font-family: var(--jp); font-size: 11px; color: var(--muted);
+      border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; cursor: help; }
+.kv .vocab-block { margin: 0; max-width: none; }
+@media (max-width: 560px) {
+  .vocab-row { grid-template-columns: auto 1fr auto; }
+  .vr { grid-column: 1 / -1; }
+}

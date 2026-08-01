@@ -216,6 +216,22 @@ def _load_similar():
 
 
 SIMILAR_GROUPS = _load_similar()
+
+
+def _load_vocab():
+    """Example words per kanji, with the user's own additions layered on top."""
+    vocab = {}
+    for path in (os.path.join(BASE_DIR, "data", "vocab.json"),
+                 os.path.join(USER_DIR, "vocab.local.json")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                vocab.update(json.load(f).get("vocab") or {})
+        except (OSError, ValueError):
+            pass
+    return vocab
+
+
+VOCAB = _load_vocab()
 # The wording taught for each sense: curated first choice, else the raw gloss.
 SENSES = {row["k"]: ([g[0] for g in SENSE_GROUPS[row["k"]] if g]
                      if row["k"] in SENSE_GROUPS
@@ -1403,6 +1419,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"senses": SENSE_GROUPS})
         if path == "/data/similar.json":
             return self.send_json({"groups": SIMILAR_GROUPS})
+        if path == "/data/vocab.json":
+            return self.send_json({"vocab": VOCAB})
         if path == "/data/spoken.local.json":
             # lives in userdata/ now; the URL is unchanged so the client and any
             # instructions written down for users still work

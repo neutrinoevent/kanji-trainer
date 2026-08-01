@@ -37,6 +37,10 @@ $("#theme-toggle").onclick = () => {
     const sim = await (await fetch("/data/similar.json")).json();
     S.similarIndex = buildSimilarIndex(sim.groups);
   } catch (e) { S.similarIndex = {}; }
+  // example words, shown to make the on/kun split concrete — never tested
+  try {
+    S.vocab = (await (await fetch("/data/vocab.json")).json()).vocab || {};
+  } catch (e) { S.vocab = {}; }
   await loadState();
   await loadCollections();
   if (!localStorage.getItem("kt-theme") && S.settings.theme) {

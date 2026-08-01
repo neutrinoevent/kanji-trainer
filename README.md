@@ -90,6 +90,11 @@ everything else in the app.
   `data/senses.json` across the beginner range, so "big" and "large" both count
   as 大 while "sun" is understood as a different sense of 日 — and radical names
   and counter notes never turn up as a "meaning" to learn.
+- **Real words, so the readings make sense.** A kanji's reading changes in
+  compounds, and being told that is far less use than seeing it: 日 is shown in
+  **日**本 (に), 三**日** (か) and 毎**日** (に), each tagged 音 or 訓, with the kanji
+  picked out inside the word. Shown on the card, after every answer and in the
+  detail view — never tested, because it's there to explain, not to memorise.
 - **Reading aloud, not reading recital.** Reading cards ask what you'd *say*
   looking at the bare character. Those readings are curated in
   `data/spoken.json` (editable — see below), labelled 音読み or 訓読み, and the
@@ -196,6 +201,7 @@ static/                 the web UI (plain HTML/CSS/JS, no build step)
 data/kanji.json         the 3,122-kanji dataset
 data/senses.json        curated meanings, grouped by sense (editable, see below)
 data/similar.json       kanji that look alike, for harder multiple choice
+data/vocab.json         example words showing how readings change
 data/spoken.json        curated read-aloud readings (editable, see below)
 userdata/               everything you own — updates never touch this
   trainer.db            your progress (created on first run)
@@ -203,6 +209,7 @@ userdata/               everything you own — updates never touch this
   spoken.local.json     your own reading overrides (optional)
   senses.local.json     your own meaning overrides (optional)
   similar.local.json    your own look-alike groups (optional)
+  vocab.local.json      your own example words (optional)
   exam-log.jsonl        your exam records, in plain text
 VISION.md               where the design ideas and decisions are written down
 ```

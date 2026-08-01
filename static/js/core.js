@@ -432,6 +432,63 @@ function distractorPool(target) {
   return S.kanji.slice(lo, hi).filter((r) => r.k !== target.k);
 }
 
+// ---------------------------------------------------------------- example words
+//
+// The reading cards teach one standalone reading, which is right for a beginner
+// but leaves them unable to say why 日 is ひ alone and に in 日本. Showing a few
+// real words closes that gap without adding anything to memorise: these are
+// displayed, never quizzed.
+
+const READING_KIND_SHORT = { on: "音", kun: "訓", irregular: "特" };
+
+const vocabFor = (k) => (S.vocab && S.vocab[k]) || [];
+
+/**
+ * Example words for a kanji, contrast first.
+ *
+ * If the kanji is read differently across the examples, lead with words that
+ * differ — a list where every entry uses the same reading teaches nothing about
+ * why readings change, which is the entire point of showing them.
+ */
+function vocabRows(k, limit = 3) {
+  const all = vocabFor(k);
+  if (!all.length) return [];
+  const kinds = [...new Set(all.map((v) => v.kind))];
+  if (kinds.length < 2) return all.slice(0, limit);
+  const out = [];
+  for (const kind of kinds) {
+    const first = all.find((v) => v.kind === kind && !out.includes(v));
+    if (first) out.push(first);
+  }
+  for (const v of all) {
+    if (out.length >= limit) break;
+    if (!out.includes(v)) out.push(v);
+  }
+  return out.slice(0, limit);
+}
+
+/** Example words with the target kanji picked out inside each one. */
+function vocabBlock(k, opts = {}) {
+  const rows = vocabRows(k, opts.limit || 3);
+  if (!rows.length) return "";
+  const mark = (w) => Array.from(w).map((c) =>
+    c === k ? `<b class="vw-k">${c}</b>` : esc(c)).join("");
+  return `
+    <div class="vocab-block${opts.compact ? " compact" : ""}">
+      ${opts.title === false ? "" : `<div class="vocab-title">Seen in</div>`}
+      ${rows.map((v) => `
+        <div class="vocab-row">
+          <span class="vw jp">${mark(v.w)}</span>
+          <span class="vr jp">${esc(v.r)}</span>
+          <span class="vm">${esc(v.m)}</span>
+          <span class="vk" title="${v.kind === "irregular"
+            ? "an irregular reading — no per-character reading applies"
+            : v.kind === "on" ? "on-reading (Chinese-derived)"
+            : "kun-reading (native Japanese)"}">${READING_KIND_SHORT[v.kind] || ""}</span>
+        </div>`).join("")}
+    </div>`;
+}
+
 // ---------------------------------------------------------------- look-alikes
 //
 // Distractors drawn from the frequency neighbourhood are plausible but not
