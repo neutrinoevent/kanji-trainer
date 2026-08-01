@@ -1506,6 +1506,48 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"rubric": EXAM_RUBRIC,
                                    "entries": exam_log_rows(),
                                    "chain": verify_exam_chain()})
+        if path == "/api/evidence":
+            # Bulk per-card evidence for a scope. The adaptive practice exam needs
+            # to weigh every card in a set against every other, which one-card-at-
+            # a-time cannot do without a request storm.
+            q = parse_qs(url.query)
+            cid = (q.get("collection") or [None])[0]
+            list_id = (q.get("list") or [None])[0]
+            if cid is not None and cid not in COLLECTIONS:
+                return self.send_json({"error": "unknown collection"}, 400)
+
+            def opt(name):
+                raw = (q.get(name) or [None])[0]
+                return int(raw) if raw not in (None, "") else None
+
+            try:
+                scope = scope_chars(settings, cid, opt("from"), opt("to"), list_id)
+            except ValueError:
+                return self.send_json({"error": "bad batch range"}, 400)
+
+            demo = demonstration_map()
+            rows = []
+            for r in db().execute("SELECT * FROM srs"):
+                if scope is not None and r["kanji"] not in scope:
+                    continue
+                if not teachable(r["kanji"], r["facet"]):
+                    continue
+                d = demo.get((r["kanji"], r["facet"]))
+                rows.append({
+                    "k": r["kanji"], "facet": r["facet"], "state": r["state"],
+                    "lapses": r["lapses"],
+                    "tier": demo_tier(r["facet"], d),
+                    "leech": bool(is_leech(r, d)),
+                    "modes": sorted(d["modes"]) if d else [],
+                    "produced": d["prod"] if d else 0,
+                    "days": len(d["days"]) if d else 0,
+                    "hits": d["hits"] if d else 0,
+                    "attempts": d["n"] if d else 0,
+                })
+            return self.send_json({"cards": rows,
+                                   "facet_modes": {k: sorted(v) for k, v in FACET_MODES.items()},
+                                   "production_modes": sorted(PRODUCTION_MODES)})
+
         if path == "/api/card":
             q = parse_qs(url.query)
             k = (q.get("k") or [""])[0]

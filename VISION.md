@@ -1367,6 +1367,90 @@ retaking rather than sitting.
 
 ---
 
+## V-017 — Compound readings, and practice exams that adapt (raised 2026-08-01)
+
+### The compound reading drill
+
+Reading cards teach the standalone reading — what you'd say seeing a bare 日 on a
+sign. A deliberate simplification, and this is where it gets paid back: given
+三日, is 日 read にち, か or ひ? A learner who can only produce the isolated
+reading cannot read a newspaper, and nothing asked.
+
+**D1 — The dataset needed one field.** `vocab.json` knew each word's full reading
+and whether the kanji took an on or kun reading, but not *which slice* belonged
+to the kanji: 日本 にほん says nothing about 日 alone. Slices are now derived by
+matching the kanji's known readings at the word's start or end, accounting for
+rendaku and gemination. That settled 309 of 313 automatically; four were filled
+by hand. Sixteen spot checks pass, including 学校 (がっ) and 上手 (じょう/ず).
+113 kanji have two or more distinct readings across their examples.
+
+**D2 — Distractors are the kanji's own other readings.** The interesting error is
+confusing にち with ひ, not with something unrelated.
+
+**D3 — The answer is the prompt, not the lesson.** After answering, the same
+character is shown read differently in its other words. That's the teaching.
+
+**D4 — Not added to `GAME_MODE_IDS`.** That list drives the "Jack of All Trades"
+badge; adding a ninth game would un-earn a badge people already hold. A badge is
+theirs once earned. New games get their own — 熟語読み.
+
+### Practice exams
+
+The mastery exam means something: a pass mark, a permanent record, the same shape
+every time. Anything sharing those properties would dilute it. So practice is
+built to be a rehearsal, deliberately different in three ways.
+
+**D5 — Shorter.** ~28% of the real length, capped at 16 questions. Long enough to
+diagnose, short enough to sit on a whim.
+
+**D6 — Adaptive, where the real exam is uniform.** The real exam samples the set
+evenly, because that is what makes it a fair assessment. Practice does the
+opposite: it weights by leech status, lapses, accuracy, tier and whether the card
+has ever been revisited on another day — then picks a *question type the card has
+never been answered in*, preferring production over recognition. That last part
+is the granular bit: the difference between "can pick it from four" and "can
+produce it" is exactly what the demonstration map already knows.
+
+**D7 — Diagnostic, not graded.** No pass mark at all. The result groups questions
+by *why each was chosen* — keeps slipping / barely met / never asked this way /
+you know this one — so the output is a list of what to work on rather than a
+number. Every miss carries its reason.
+
+**D8 — Weakness, but not only weakness.** A quarter of questions come from solid
+cards. A paper made entirely of your worst cards is demoralising and can't show
+improvement, because nothing in it was ever going to be right.
+
+**D9 — Leeches are guaranteed a slot.** There are usually only a handful, so a
+weighted draw can miss them — and a diagnostic paper that skips the cards
+actively fighting the learner has failed at its one job.
+
+> **Two bugs found in testing.** The eligibility check excluded cards at tier 0,
+> which sounds right — nothing demonstrated, nothing to test — but tier is about
+> *demonstrated evidence*, not about whether a card is in rotation. It silently
+> excluded every leech. Eligibility now keys off SRS state. And "never asked this
+> way" was being claimed for cards never asked *at all*, where every mode is
+> trivially untested; that finding is now labelled "barely met yet", which is the
+> real one.
+
+### Where this goes
+
+Practice results are logged as evidence (like drills) and never touch the
+schedule, which leaves room for things worth building later:
+
+- **Readiness informed by practice.** The signal currently reads demonstrated
+  fluency alone. Practice performance is a second, sharper input.
+- **Post-failure practice.** After a failed mastery exam, generate a practice
+  paper from exactly what was missed.
+- **Mock mode.** Full length, exam conditions, no adaptation — pure rehearsal for
+  someone who wants to know how the real thing will feel.
+- **Spaced practice.** A weekly paper that tracks whether the weak set is
+  shrinking.
+
+The selection function is a single pure `practiceWeight()` plus `practiceMode()`,
+so any of those is a change to selection rather than to the machinery.
+
+---
+
 ## Backlog — ideas raised but not yet scheduled
 
 Carried over from earlier sessions and this audit. Not commitments.

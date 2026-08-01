@@ -66,7 +66,7 @@ Makes the on/kun split concrete: showing 日本 / 日曜日 / 今日 is *why* �
 alone but にち in compounds. Needs a vocabulary source (JMdict, CC BY-SA, same
 attribution treatment as KANJIDIC2). Also unlocks idea 6.
 
-### 8. Compound-reading drill — `M` — now unblocked
+### ~~8. Compound-reading drill~~ — DONE (V-017)
 Given 日本, is 日 read にち, じつ or ひ? Tests exactly what the read-aloud cards
 deliberately simplify away. `data/vocab.json` (V-016) is the dataset it needed,
 so this is ready to build.
@@ -82,6 +82,16 @@ so this is ready to build.
   `docs/PARKED-phone-access-and-sync.md`. `L`
 - **Exam variants** — a timed paper; reading-only or meaning-only; a
   recertification exam sampling across every batch already passed. `M`
+- **Practice exam follow-ons** (V-017 built the machinery; these are selection
+  changes, not new systems):
+  - *Readiness informed by practice.* The signal reads demonstrated fluency
+    alone; practice performance is a second, sharper input. `S`
+  - *Post-failure practice.* After a failed mastery exam, generate a paper from
+    exactly what was missed. `S`
+  - *Mock mode.* Full length, exam conditions, no adaptation — rehearsal for
+    someone who wants to know how the real thing will feel. `S`
+  - *Spaced practice.* A weekly paper that tracks whether the weak set is
+    shrinking. `M`
 - **Bring exam misses forward in the schedule.** Considered and rejected in
   V-010 D3 because it gives the exam a cost. Worth revisiting once we know
   whether the drill-the-missed button actually gets used. `S`

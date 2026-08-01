@@ -57,6 +57,13 @@ everything else in the app.
   report. Optional templates can seed a new list from your most-missed kanji or by
   copying a batch. Adding a kanji to a list doesn't start it studying, and
   deleting a list never touches your progress.
+- **Practice exams that go looking for your weak spots.** About a quarter the
+  length of the real thing, and deliberately not a fair sample: they weight
+  toward the cards you keep missing, the ones you've barely met, and the question
+  types you've never been asked in. There's no pass mark — the result groups
+  every question by *why it was chosen*, so you finish with a list of what to
+  work on rather than a score. The real exam keeps its weight precisely because
+  this one has none.
 - **A mastery exam to crown a batch.** When you've finished a set, sit an exam on
   it. One question per kanji on meaning and one on reading, with the question
   types spread so every paper contains recognition, reverse recall and unaided

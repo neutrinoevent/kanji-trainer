@@ -1079,6 +1079,352 @@ function gradeExamAnswer(q, given) {
                                : gradeMeaning(given, q.row, q.facet);
 }
 
+// ================================================================ practice exam
+//
+// A rehearsal, not a verdict. The mastery exam is the thing that means
+// something — it has a pass mark, it goes in your record, and it is the same
+// shape every time. If practice shared any of that, sitting the real one would
+// stop being an event, which is most of what makes it work.
+//
+// So practice differs on purpose, in three ways:
+//
+//   * SHORTER. About a quarter the length, capped at 16 questions. Long enough
+//     to diagnose, short enough to sit on a whim.
+//   * ADAPTIVE. The real exam samples the set evenly, because that is what makes
+//     a fair assessment. Practice does the opposite: it goes where the evidence
+//     is thinnest, and asks in the ways you have not been asked.
+//   * DIAGNOSTIC, NOT GRADED. No pass mark at all. It reports what it found and
+//     what to do about it. A second thing you can pass would dilute the first.
+
+const PRACTICE_MAX = 16;
+const PRACTICE_MIN = 6;
+const PRACTICE_FRACTION = 0.28;      // of the real exam's question count
+const PRACTICE_CALIBRATION = 0.25;   // share drawn from cards you have solid
+
+/**
+ * How much testing this card would teach us.
+ *
+ * Weakness first, but not only weakness: a paper made entirely of your worst
+ * cards is demoralising, and it also can't show improvement, because nothing in
+ * it was ever going to be right. A quarter of the questions come from cards that
+ * are solid, so the result has a floor you recognise as your own.
+ */
+function practiceWeight(card) {
+  // "Introduced" is a fact about the SRS, not about demonstrated tier. A card
+  // can sit at tier 0 — no demonstrated evidence at all — while being very much
+  // in rotation and, in the worst case, one the learner keeps failing. Gating on
+  // tier excluded exactly the cards most worth asking about.
+  if (card.state === "new" || card.state === "parked") return 0;
+  let w = { 0: 70, 1: 60, 2: 25, 3: 6 }[card.tier] || 0;
+  if (card.leech) w += 90;                        // actively fighting them
+  if (card.lapses) w += Math.min(30, card.lapses * 8);
+  if (card.attempts) {
+    const acc = card.hits / card.attempts;
+    if (acc < 0.6) w += 35;
+    else if (acc < 0.8) w += 15;
+  }
+  if (card.days <= 1) w += 12;                    // never revisited on another day
+  return w;
+}
+
+/**
+ * Which question type to ask.
+ *
+ * A mode this card has never been answered in is worth far more than a repeat:
+ * it is the difference between "they can pick it out of four" and "they can
+ * produce it". Untested modes first, then production over recognition.
+ */
+function practiceMode(card, facetModes, productionModes) {
+  const available = facetModes[card.facet] || [];
+  if (!available.length) return null;
+  const seen = new Set(card.modes);
+  const untested = available.filter((m) => !seen.has(m));
+  if (untested.length) {
+    const produce = untested.filter((m) => productionModes.includes(m));
+    return pick(produce.length ? produce : untested);
+  }
+  const produce = available.filter((m) => productionModes.includes(m));
+  return pick(produce.length && Math.random() < 0.6 ? produce : available);
+}
+
+const PRACTICE_REASON = {
+  leech: "keeps slipping",
+  fresh: "barely met yet",
+  weak: "not demonstrated yet",
+  untested: "never asked this way",
+  thin: "only asked once or twice",
+  calibration: "you know this one",
+};
+
+function practiceReason(card, mode) {
+  if (card.leech) return "leech";
+  // "never asked this way" only means something if the card has been asked at
+  // all. For a card with no history every mode is untested, and labelling that
+  // as a mode gap buries the real finding, which is that it has no history.
+  if (!card.attempts) return "fresh";
+  if (!card.modes.includes(mode)) return "untested";
+  if (card.tier >= 3) return "calibration";
+  if (card.tier <= 1) return "weak";
+  if (card.attempts <= 2) return "thin";
+  return "weak";
+}
+
+async function buildPracticeExam(sc) {
+  let data;
+  try { data = await api("/api/evidence" + scopeQuery(sc)); }
+  catch (e) { return null; }
+  const facetModes = data.facet_modes || {};
+  const production = data.production_modes || [];
+  const cards = (data.cards || []).filter((c) => S.byChar[c.k] && practiceWeight(c) > 0);
+  if (cards.length < 3) return null;
+
+  const chars = scopeChars(sc) || [];
+  const realLength = chars.length * 2;
+  const want = Math.max(PRACTICE_MIN,
+    Math.min(PRACTICE_MAX, Math.round(realLength * PRACTICE_FRACTION)));
+
+  const solid = cards.filter((c) => c.tier >= 3);
+  const rest = cards.filter((c) => c.tier < 3);
+  const nCal = Math.min(solid.length, Math.round(want * PRACTICE_CALIBRATION));
+
+  // Leeches are guaranteed a place rather than left to chance. There are usually
+  // only a handful, so a weighted draw can miss them entirely — and a diagnostic
+  // paper that skips the cards actively fighting the learner has failed at the
+  // one job it has.
+  const drawn = [];
+  const leeches = shuffle(rest.filter((c) => c.leech));
+  drawn.push(...leeches.slice(0, Math.max(1, Math.floor(want / 4))));
+  const taken = new Set(drawn);
+  const pool = rest.filter((c) => !taken.has(c)).map((c) => ({ c, w: practiceWeight(c) }));
+  while (drawn.length < want - nCal && pool.length) {
+    const total = pool.reduce((a, x) => a + x.w, 0);
+    let r = Math.random() * total, i = 0;
+    while (i < pool.length - 1 && (r -= pool[i].w) > 0) i++;
+    drawn.push(pool.splice(i, 1)[0].c);
+  }
+  drawn.push(...shuffle(solid).slice(0, nCal));
+
+  const questions = [];
+  for (const c of shuffle(drawn)) {
+    const mode = practiceMode(c, facetModes, production);
+    if (!mode) continue;
+    const q = examQuestion(S.byChar[c.k], mode, c.facet,
+                           SENSE_INDEX[c.facet] || 0);
+    if (!q.answer) continue;
+    questions.push({ ...q, card: c, reason: practiceReason(c, mode) });
+  }
+  return questions.length >= 3
+    ? { scope: sc, questions, realLength, covered: new Set(questions.map((q) => q.k)).size }
+    : null;
+}
+
+routes.practice = async (arg) => {
+  await loadState();
+  await loadCollections();
+  const sc = arg === "all" ? null : parseScope(arg || "");
+  if (!arg || (arg !== "all" && !sc)) { location.hash = "#/exam"; return; }
+  setMain(`<h1>Practice exam</h1><p class="sub">Choosing what to ask…</p>`);
+  const exam = await buildPracticeExam(sc);
+  if (!exam) {
+    setMain(`
+      <h1>Practice exam · ${esc(scopeLabel(sc))}</h1>
+      <div class="card" style="text-align:center;padding:38px 22px">
+        <h2 style="margin-top:0">Not enough to practise on yet</h2>
+        <p class="sub">A practice exam draws on what you've already met. Once a few
+          kanji from <b>${esc(scopeLabel(sc))}</b> are in your rotation, come back.</p>
+        <div class="row" style="justify-content:center">
+          <button class="primary-btn" onclick="location.hash='${scopeHash(sc)}'">Review this set</button>
+          <button class="ghost-btn" onclick="location.hash='#/exam'">Exams</button>
+        </div>
+      </div>`);
+    return;
+  }
+  runPractice(exam);
+};
+
+function runPractice(exam) {
+  const sess = { exam, pos: 0, answers: [], startedAt: Date.now() };
+  practiceCard(sess);
+}
+
+function practiceCard(sess) {
+  if (sess.pos >= sess.exam.questions.length) return practiceResults(sess);
+  const q = sess.exam.questions[sess.pos];
+  const total = sess.exam.questions.length;
+  const t0 = Date.now();
+
+  let inner;
+  if (q.mode === "mc-kanji") {
+    inner = `<div class="q-prompt-text">${esc(senses(q.row)[q.senseIdx])}</div>
+      <div class="choices">${q.choices.map((c, i) =>
+        `<button class="choice jp" data-c="${esc(c)}"${fontStyle(q.font)}><span class="key-hint">${i + 1}</span>${c}</button>`).join("")}</div>`;
+  } else if (q.choices) {
+    const jp = q.mode === "mc-reading" ? "jp" : "";
+    inner = `<div class="q-prompt-kanji"${fontStyle(q.font)}>${q.row.k}</div>
+      <div class="choices">${q.choices.map((c, i) =>
+        `<button class="choice ${jp}" data-c="${esc(c)}"><span class="key-hint">${i + 1}</span>${esc(c)}</button>`).join("")}</div>`;
+  } else {
+    const isReading = q.mode === "type-reading";
+    inner = `<div class="q-prompt-kanji"${fontStyle(q.font)}>${q.row.k}</div>
+      <input class="type-input ${isReading ? "jp" : ""}" id="pr-in" autocomplete="off"
+             spellcheck="false" placeholder="${isReading ? "reading…" : "meaning…"}">
+      ${isReading ? `<div class="kana-preview" id="pr-kana"></div>` : ""}
+      <button class="primary-btn" id="pr-go" style="margin-top:14px">Answer ↵</button>`;
+  }
+
+  setMain(`
+    <div class="quiz-wrap">
+      <div class="session-scope">📝 Practice · ${esc(scopeLabel(sess.exam.scope))}
+        <span class="pill">not graded</span></div>
+      <div class="quiz-top">
+        <span>${sess.pos + 1} / ${total}</span>
+        <div class="meter q-progress"><i style="width:${Math.round((sess.pos / total) * 100)}%"></i></div>
+        <span class="pr-why">${esc(PRACTICE_REASON[q.reason] || "")}</span>
+      </div>
+      <div class="quiz-card">
+        <div class="q-kind">${FACET_TAG[q.facet] || q.facet} · ${esc(modeLabel(q))}</div>
+        ${inner}
+      </div>
+      <div class="row" style="justify-content:center;margin-top:14px">
+        <button class="ghost-btn" id="pr-quit">Stop</button>
+      </div>
+    </div>`);
+
+  $("#pr-quit").onclick = () => {
+    if (sess.answers.length && confirm("Stop here? You'll still see what it found so far."))
+      return practiceResults(sess);
+    if (!sess.answers.length) location.hash = "#/exam";
+  };
+
+  const record = (given) => {
+    const g = gradeExamAnswer(q, given);
+    sess.answers.push({ q, given, ok: !!g.ok, ms: Date.now() - t0 });
+    api("/api/answer", { k: q.k, facet: q.facet, mode: q.mode, correct: g.ok ? 1 : 0,
+                         ms: Date.now() - t0, srs: false,
+                         on_target: g.ok && !g.other }).catch(() => {});
+    sess.pos++;
+    practiceCard(sess);
+  };
+
+  if (q.choices) {
+    const btns = [...document.querySelectorAll(".choice")];
+    btns.forEach((b) => (b.onclick = () => { btns.forEach((x) => (x.disabled = true)); record(b.dataset.c); }));
+    keyOnce((e) => {
+      if (e.repeat) return false;
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= btns.length && !btns[0].disabled) { e.preventDefault(); btns[n - 1].click(); return true; }
+      return false;
+    });
+  } else {
+    const input = $("#pr-in");
+    input.focus();
+    if (q.mode === "type-reading") {
+      input.addEventListener("input", () => { $("#pr-kana").textContent = toHiragana(input.value); });
+    }
+    const go = () => {
+      if (input.disabled) return;
+      input.disabled = true; $("#pr-go").disabled = true;
+      record(input.value);
+    };
+    $("#pr-go").onclick = go;
+    keyOnce((e) => {
+      if (e.key !== "Enter" || e.repeat) return false;
+      e.preventDefault(); go(); return true;
+    });
+  }
+}
+
+async function practiceResults(sess) {
+  const { exam } = sess;
+  const ok = sess.answers.filter((a) => a.ok).length;
+  const n = sess.answers.length;
+  const mins = Math.max(1, Math.round((Date.now() - sess.startedAt) / 60000));
+
+  // group by why each question was chosen — that is the diagnosis
+  const byReason = {};
+  for (const a of sess.answers) {
+    const r = byReason[a.q.reason] || (byReason[a.q.reason] = { ok: 0, n: 0 });
+    r.n++; if (a.ok) r.ok++;
+  }
+  const byFacet = {};
+  for (const a of sess.answers) {
+    const f = byFacet[a.q.facet] || (byFacet[a.q.facet] = { ok: 0, n: 0 });
+    f.n++; if (a.ok) f.ok++;
+  }
+  const missed = sess.answers.filter((a) => !a.ok);
+  S.examMissed = [...new Set(missed.map((a) => a.q.k))];
+
+  await loadState().catch(() => {});
+  const ready = examReadiness(exam.scope);
+
+  // the honest headline: what this suggests about the real thing
+  let verdict;
+  const pct = n ? ok / n : 0;
+  if (!ready || ready.state === "early") {
+    verdict = "Keep going — there's more of this set to meet before the real exam is worth sitting.";
+  } else if (pct >= 0.9 && ready.state === "ready") {
+    verdict = "That went well, and the set is demonstrated enough. The real exam looks worth sitting.";
+  } else if (pct >= 0.75) {
+    verdict = "Solid. Practice deliberately picks your weaker cards, so this reads better than it looks.";
+  } else {
+    verdict = "Plenty to work on — and remember this paper went looking for your weak spots, so it's not a verdict on the set.";
+  }
+
+  setMain(`
+    <div class="quiz-wrap session-done">
+      <div class="doneK">稽</div>
+      <h1>Practice · ${esc(scopeLabel(exam.scope))}</h1>
+      <p class="sub">${ok} of ${n} · ${mins}m · ${exam.covered} kanji · <b>not graded</b></p>
+
+      <div class="card chart-card" style="text-align:left">
+        <div class="chart-title">What this paper was looking for</div>
+        <div class="chart-sub">A practice exam doesn't sample evenly — it goes where your
+          evidence is thinnest and asks in ways you haven't been asked. That's why the score
+          isn't comparable to the real thing.</div>
+        <div class="hbars" style="margin-top:10px">
+          ${Object.entries(byReason).map(([r, v]) => `<div class="hb-row">
+            <span class="hb-label">${esc(PRACTICE_REASON[r] || r)}</span>
+            <div class="hb-track"><div class="hb-fill" style="width:${Math.round((v.ok / v.n) * 100)}%"></div></div>
+            <span class="hb-val">${v.ok}/${v.n}</span></div>`).join("")}
+        </div>
+        <div class="chart-sub" style="margin-top:10px">By rung —
+          ${Object.entries(byFacet).map(([f, v]) =>
+            `${esc(FACET_TAG[f] || f)} ${v.ok}/${v.n}`).join(" · ")}</div>
+        <p class="sub" style="margin:12px 0 0">${esc(verdict)}</p>
+      </div>
+
+      ${missed.length ? `
+      <div class="card chart-card" style="text-align:left">
+        <div class="chart-title">Worth another look (${missed.length})</div>
+        <div class="exam-misses">
+          ${missed.map((a) => `
+            <div class="exam-miss" data-k="${a.q.k}">
+              <span class="em-k jp">${a.q.k}</span>
+              <span class="em-body">
+                <span class="em-mode">${esc(PRACTICE_REASON[a.q.reason] || "")}</span>
+                <span class="em-gave">you said ${a.given && String(a.given).trim()
+                  ? `“${esc(String(a.given))}”` : "nothing"}</span>
+                <span class="em-want">answer: <b>${esc(String(a.q.answer))}</b></span>
+              </span>
+            </div>`).join("")}
+        </div>
+      </div>` : `<div class="card"><b>Nothing missed</b> — on a paper that deliberately
+        chose your weakest cards. That's a good sign.</div>`}
+
+      <div class="next-up">
+        ${S.examMissed.length ? `<button class="primary-btn" onclick="location.hash='#/drill/missed'">
+          🎯 Drill the ${S.examMissed.length} you missed</button>` : ""}
+        <button class="ghost-btn" onclick="location.hash='#/practice/${scopeSuffix(exam.scope)}'">Another practice</button>
+        ${ready && (ready.state === "ready" || ready.state === "passed")
+          ? `<button class="ghost-btn" onclick="location.hash='#/exam/${scopeSuffix(exam.scope)}'">📋 Sit the real exam</button>` : ""}
+        <button class="ghost-btn" onclick="location.hash='${scopeHash(exam.scope)}'">Review this set</button>
+      </div>
+    </div>`);
+  document.querySelectorAll(".exam-miss").forEach((el) => {
+    el.onclick = () => S.byChar[el.dataset.k] && kanjiModal(el.dataset.k);
+  });
+}
+
 routes.exam = async (arg) => {
   await loadState();
   await loadCollections();
@@ -1104,17 +1450,36 @@ function examPicker() {
     <p class="sub">A capstone for a set you've been working through. Feedback comes
       at the end, nothing is re-asked, and it leaves your review schedule alone —
       so a bad day costs you nothing but the time.</p>
+    <div class="card">
+      <div class="chart-title">Two kinds of exam</div>
+      <div class="two-kinds">
+        <div class="tk">
+          <div class="tk-h">📋 Mastery exam</div>
+          <p>The whole set, sampled evenly, one question per kanji per rung. It has a
+            pass mark, it goes in your record, and it's the same shape every time.</p>
+        </div>
+        <div class="tk">
+          <div class="tk-h">📝 Practice exam</div>
+          <p>About a quarter as long, and it doesn't sample evenly — it goes where your
+            evidence is thinnest and asks in ways you haven't been asked. No pass mark:
+            it tells you what to work on.</p>
+        </div>
+      </div>
+    </div>
     ${rows.length ? `<div class="card"><div class="chart-title">Which set?</div>
       <div class="chart-sub">Sets you\'ve worked through most are listed first.</div>
       <div class="scope-chips" style="margin-top:12px">
         ${rows.map((sc) => {
           const r = examReadiness(sc);
-          return `<button class="chip ${r ? "r-" + r.state : ""}"
-            onclick="location.hash='#/exam/${scopeSuffix(sc)}'"
-            ${r ? `data-tip="${esc(r.why)}"` : ""}>
-            ${esc(scopeLabel(sc))} <span class="chip-n">${(scopeChars(sc) || []).length}</span>
-            ${r && r.state === "ready" ? `<span class="chip-flag">ready</span>`
-              : r && r.state === "passed" ? `<span class="chip-flag">✓</span>` : ""}</button>`;
+          return `<span class="chip-pair">
+            <button class="chip ${r ? "r-" + r.state : ""}"
+              onclick="location.hash='#/exam/${scopeSuffix(sc)}'"
+              ${r ? `data-tip="${esc(r.why)}"` : ""}>
+              ${esc(scopeLabel(sc))} <span class="chip-n">${(scopeChars(sc) || []).length}</span>
+              ${r && r.state === "ready" ? `<span class="chip-flag">ready</span>`
+                : r && r.state === "passed" ? `<span class="chip-flag">✓</span>` : ""}</button>
+            <button class="chip chip-practice" title="Practice exam"
+              onclick="location.hash='#/practice/${scopeSuffix(sc)}'">📝</button></span>`;
         }).join("")}
       </div></div>`
       : `<div class="card">Nothing in rotation yet. <a href="#/study">Start a batch</a> first.</div>`}
@@ -1205,6 +1570,8 @@ function readyCard(sc) {
         <button class="${r.state === "ready" ? "primary-btn" : "ghost-btn"}"
           onclick="location.hash='#/exam/${scopeSuffix(sc)}'">📋 ${
           r.passed ? "Retake the exam" : "Sit the exam"}</button>
+        <button class="${r.state === "ready" ? "ghost-btn" : "primary-btn"}"
+          onclick="location.hash='#/practice/${scopeSuffix(sc)}'">📝 Practice first</button>
         ${r.state !== "ready" && !r.passed
           ? `<button class="ghost-btn" onclick="location.hash='${scopeHash(sc)}'">Keep reviewing</button>` : ""}
       </div>
@@ -1301,6 +1668,7 @@ function examIntro(sc) {
 
     <div class="row" style="margin-top:18px">
       <button class="primary-btn" id="exam-start">Begin the exam</button>
+      <button class="ghost-btn" onclick="location.hash='#/practice/${scopeSuffix(sc)}'">📝 Practice instead</button>
       <button class="ghost-btn" onclick="location.hash='#/review'">Not yet</button>
     </div>`);
   $("#exam-start").onclick = () => runExam(exam);

@@ -234,6 +234,8 @@ function reviewHub(showAll) {
         <button class="ghost-btn sm" onclick="location.hash='${scopeHash(sc)}'"
                 ${ready ? "" : "disabled"}>${st.due ? `Review (${st.due})` : ready ? "Review · new" : "Review"}</button>
         <button class="ghost-btn sm" onclick="location.hash='${scopeHash(sc, "drill")}'">Drill</button>
+        <button class="ghost-btn sm" onclick="location.hash='#/practice/${scopeSuffix(sc)}'"
+                title="Practice exam">📝</button>
         <button class="ghost-btn sm" onclick="location.hash='#/exam/${scopeSuffix(sc)}'"
                 title="Mastery exam">📋${examHistory(sc).some((r) => r.passed) ? " ✓" : ""}</button>
       </div>`;

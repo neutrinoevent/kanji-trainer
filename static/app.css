@@ -770,3 +770,14 @@ h2 { font-size: 17px; margin: 26px 0 12px; }
 .cr-gloss { color: var(--ink-2); font-size: 14px; margin-bottom: 14px; }
 .cr-others { max-width: 460px; margin: 12px auto 0; text-align: left; }
 .cr-others .vk { font-family: var(--jp); color: var(--accent); }
+
+/* ============================================================ practice exam */
+.pr-why { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.two-kinds { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.tk { flex: 1; min-width: 230px; background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 14px; }
+.tk-h { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+.tk p { margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+.chip-pair { display: inline-flex; }
+.chip-pair .chip:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.chip-practice { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0; padding: 6px 9px; }
